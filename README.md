@@ -45,6 +45,18 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
   microphone you have already granted — a page that asks for your mic while you are not touching it
   is a page people block for good.
 
+### Borrowed from Obsidian
+
+- **Nested tags, not folders.** Tag a task `#work/clients/vettika` — typed, or spoken as
+  "under work slash clients". The left rail draws them as a collapsible tree with counts, so it
+  reads like a folder pane, and clicking a branch includes everything beneath it. Tags rather than
+  folders because a folder gives a task exactly one home, and a task is usually "work" *and*
+  "vettika" *and* "billing" at once. Adding a task while a branch is selected files it there.
+- **Quick switcher (⌘K / Ctrl+K).** Type a few letters and jump: the match is a subsequence, so
+  "wtp" finds *Water the plants*, and tags are searched alongside titles. Picking a task drops every
+  filter that could be hiding it, moves to its tab and focuses the row. A query that matches
+  nothing still offers to create it.
+
 ### Tasks
 
 - **One big input** — type or dictate, press Enter or **Add**. Whatever is half-typed in it
@@ -64,8 +76,8 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
   today keeps a green ring whichever month you browse. Click a day to filter the list to it
   (*Showing: Tue 29*, with a ✕ to clear); new tasks then default to that day.
 - **Undo toast (5s)** after a delete or a completion, including completions made by voice.
-- **Keyboard**: <kbd>N</kbd> new task · <kbd>/</kbd> search · <kbd>Space</kbd> complete the focused
-  row · <kbd>Esc</kbd> stop listening / dismiss.
+- **Keyboard**: <kbd>⌘K</kbd> quick switcher · <kbd>N</kbd> new task · <kbd>/</kbd> search ·
+  <kbd>Space</kbd> complete the focused row · <kbd>Esc</kbd> stop listening / dismiss.
 - **Installable PWA** — manifest, icons, and a service worker that keeps the app opening offline.
 
 ## Design
@@ -77,7 +89,7 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
 | `--border` | `#1F2A26` | hairlines |
 | `--text` | `#E6E6E6` | body text |
 | `--muted` | `#9AA5A0` | secondary text, chips |
-| `--accent` | `#39FF88` | **only** the primary button, the active tab, the progress ring, calendar dots and focus rings |
+| `--accent` | `#39FF88` | **only** the primary button, the active tab, the progress ring, calendar dots, the selected tag and focus rings |
 
 Spacing runs on an 8px scale, cards use a 12px radius, and the base font is 16px.
 
@@ -121,6 +133,8 @@ src/
     TaskComposer.jsx       big input + mic + Add, with a live parse preview
     MicButton.jsx          shared mic control with the listening pulse
     ProgressRing.jsx       completion ring and counts
+    TagTree.jsx            collapsible nested-tag rail
+    QuickSwitcher.jsx      ⌘K jump-to-task palette
     MiniCalendar.jsx       month grid, task dots, day filter
     ConfirmCard.jsx        read-back card for a dictated task
     NeedsAttention.jsx     overdue + this week, at a glance
@@ -143,7 +157,9 @@ src/
     demoTodos.js           the "Load demo data" set, positioned relative to now
   utils/
     date.js                calendar-day helpers + dueAt timestamp helpers
-    nlp.js                 parsing for tasks, replies, confirmations and edits
+    nlp.js                 parsing for tasks, replies, confirmations, edits and tags
+    tags.js                nested-tag paths, matching and the sidebar tree
+    rank.js                subsequence ranking for the quick switcher
     todoFilters.js         tabs, sorting, stats, calendar index, urgent + reminder selectors
 ```
 
@@ -183,9 +199,12 @@ without crashing the UI.
   share a single recognition session; `listenTarget` decides whose transcript is on screen, and
   starting a new session always tears down the old one. Reminders pause while a confirmation is
   open, so two cards never talk over each other.
-- **A picked day replaces the tab.** "Everything on Monday" is a different question from
-  "everything due today", so selecting a calendar day overrides the tab filter rather than
-  intersecting with it, and picking a tab clears the day.
+- **A picked day replaces the tab; a picked tag narrows it.** "Everything on Monday" is a different
+  question from "everything due today", so a calendar day overrides the tab rather than intersecting
+  with it. A tag is a different axis entirely, so it narrows whatever the tab or day already chose.
+- **Tags are paths, matched by prefix.** `work` matches `work/clients/vettika` because the filter
+  compares whole segments — which is why the tree can count a task once at every level it belongs
+  to without storing anything but the tag string.
 - **One prompt at a time.** A backlog of overdue tasks is worked through one question at a time
   rather than all at once, and `promptedAt` is persisted so a reload does not re-ask. The 30-second
   sweep is the floor, not the latency: the queue going from empty to non-empty sweeps immediately,
@@ -203,6 +222,8 @@ without crashing the UI.
 | `src/state/todoReducer.test.js` | tag normalisation, creation defaults, validation, every action incl. snooze/reschedule/notes, legacy `dueDate` upgrade |
 | `src/state/storage.test.js` | persistence round-trip, corrupted/legacy/invalid payloads, draft round-trip, throwing or missing `localStorage` |
 | `src/state/demoTodos.test.js` | demo data fills every tab, includes an overdue task, unique ids, idempotent re-loading |
+| `src/utils/tags.test.js` | path splitting, branch matching (a parent includes its children), tree shape and per-node counts |
+| `src/utils/rank.test.js` | subsequence matching, word-start ranking, tie-breaking, tag search, empty query |
 | `src/utils/date.test.js` | ISO validation (`2026-02-30` rejected), day maths, due labels, overdue rules |
 | `src/utils/todoFilters.test.js` | tab rules, search, sort modes (incl. non-mutation), stats, urgent window, reminder queue, calendar day index |
 

@@ -36,6 +36,37 @@ const DAY_PARTS = {
   midnight: 0,
 }
 
+/** `#work/clients` anywhere in the text. */
+const TAG_PATTERN = /#([\p{L}\p{N}_-]+(?:\/[\p{L}\p{N}_-]+)*)/gu
+
+/**
+ * The spoken form, at the end of the sentence only: "…under work slash clients".
+ * Bounded deliberately — an unbounded tail would swallow half the task.
+ */
+const SPOKEN_TAG_PATTERN =
+  /(?:^|\s)(?:tagged|tag|under|filed under)\s+([\p{L}\p{N}][\p{L}\p{N}\- /]{0,40})$/iu
+
+/** Words a real tag phrase never starts with. */
+const TAG_STOP_WORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'my',
+  'our',
+  'his',
+  'her',
+  'their',
+  'its',
+  'this',
+  'that',
+  'these',
+  'those',
+  'it',
+  'them',
+  'there',
+  'here',
+])
+
 const PRIORITY_PATTERNS = [
   [/\b(?:urgent(?:ly)?|asap|critical|emergency|top priority|high priority)\b/, 'high'],
   [/\b(?:important|priority)\b/, 'high'],
@@ -189,6 +220,43 @@ function matchDay(lower, cuts, now) {
   return null
 }
 
+/**
+ * Nested tags. `#work/clients` is the typed form; "under work slash clients"
+ * is the spoken one, since dictation will not produce a `#`. Spaces stay part
+ * of a segment ("under weekly review" is one tag), and only the word "slash"
+ * nests — guessing at nesting from spaces gets it wrong more often than not.
+ */
+function matchTags(text, cuts) {
+  const tags = []
+
+  for (const match of text.matchAll(TAG_PATTERN)) {
+    tags.push(match[1])
+    cuts.push([match.index, match.index + match[0].length])
+  }
+
+  if (tags.length > 0) return tags
+
+  const spoken = SPOKEN_TAG_PATTERN.exec(text)
+
+  // "put the box under the stairs" is a sentence, not a tag. A tag phrase
+  // never opens with a determiner, so that one word is enough to tell them
+  // apart without a parser.
+  if (spoken && !TAG_STOP_WORDS.has(spoken[1].trim().split(/\s+/)[0].toLowerCase())) {
+    const phrase = spoken[1]
+      .trim()
+      .replace(/\s+slash\s+/gi, '/')
+      .replace(/\s*\/\s*/g, '/')
+      .replace(/\s+/g, ' ')
+
+    if (phrase) {
+      tags.push(phrase)
+      cuts.push([spoken.index, spoken.index + spoken[0].length])
+    }
+  }
+
+  return tags
+}
+
 /** "urgent" → high, "someday" → low. `found` says whether the text mentioned it at all. */
 function matchPriority(lower, cuts) {
   for (const [pattern, level] of PRIORITY_PATTERNS) {
@@ -237,11 +305,12 @@ export function parseDueExpression(raw, now = new Date(), defaultHour = DEFAULT_
  */
 export function parseTaskInput(raw, now = new Date(), defaultHour = DEFAULT_DUE_HOUR) {
   const text = String(raw ?? '').replace(/\s+/g, ' ').trim()
-  if (!text) return { title: '', dueAt: null, priority: DEFAULT_PRIORITY }
+  if (!text) return { title: '', dueAt: null, priority: DEFAULT_PRIORITY, tags: [] }
 
   const lower = text.toLowerCase()
   const cuts = []
 
+  const tags = matchTags(text, cuts)
   const { priority } = matchPriority(lower, cuts)
 
   const { dueAt, cuts: dueCuts } = parseDueExpression(text, now, defaultHour)
@@ -254,6 +323,7 @@ export function parseTaskInput(raw, now = new Date(), defaultHour = DEFAULT_DUE_
     title: title || text,
     dueAt,
     priority,
+    tags,
   }
 }
 

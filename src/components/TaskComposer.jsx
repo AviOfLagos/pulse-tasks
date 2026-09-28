@@ -82,7 +82,7 @@ const TaskComposer = forwardRef(function TaskComposer(
       </div>
 
       <div className="composer-foot">
-        {parsed && (parsed.dueAt || parsed.priority !== 'medium') ? (
+        {parsed && (parsed.dueAt || parsed.priority !== 'medium' || parsed.tags.length > 0) ? (
           <p className="parse-preview" aria-live="polite">
             <span className="parse-label">Understood:</span>
             <span className="chip">{parsed.title}</span>
@@ -92,6 +92,11 @@ const TaskComposer = forwardRef(function TaskComposer(
                 {PRIORITY_LABELS[parsed.priority]}
               </span>
             ) : null}
+            {parsed.tags.map((tag) => (
+              <span className="chip" key={tag}>
+                #{tag}
+              </span>
+            ))}
           </p>
         ) : (
           <p className="composer-hint">

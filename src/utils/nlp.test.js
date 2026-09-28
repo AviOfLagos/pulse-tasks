@@ -236,3 +236,42 @@ describe('parseConfirmReply', () => {
     assert.equal(parseConfirmReply('bananas', NOW).intent, 'unknown')
   })
 })
+
+describe('nested tags', () => {
+  test('pulls #work/clients out of the title', () => {
+    const result = parseTaskInput('draft the proposal #work/clients tomorrow 9am', NOW)
+
+    assert.equal(result.title, 'Draft the proposal')
+    assert.deepEqual(result.tags, ['work/clients'])
+    assert.deepEqual(local(result.dueAt), [2026, 8, 29, 9, 0])
+  })
+
+  test('takes several hash tags', () => {
+    assert.deepEqual(parseTaskInput('pay invoice #work #billing', NOW).tags, ['work', 'billing'])
+  })
+
+  test('understands the spoken form, with "slash" for nesting', () => {
+    const spoken = parseTaskInput('call the printer under work slash admin', NOW)
+
+    assert.equal(spoken.title, 'Call the printer')
+    assert.deepEqual(spoken.tags, ['work/admin'])
+  })
+
+  test('keeps spaces inside one spoken segment', () => {
+    assert.deepEqual(parseTaskInput('read the notes under weekly review', NOW).tags, [
+      'weekly review',
+    ])
+  })
+
+  test('only reads a spoken tag at the end, so it cannot eat the task', () => {
+    const result = parseTaskInput('put the box under the stairs today', NOW)
+
+    assert.deepEqual(result.tags, [])
+    assert.equal(result.title, 'Put the box under the stairs')
+  })
+
+  test('is an empty list when nothing was tagged', () => {
+    assert.deepEqual(parseTaskInput('buy milk', NOW).tags, [])
+    assert.deepEqual(parseTaskInput('', NOW).tags, [])
+  })
+})

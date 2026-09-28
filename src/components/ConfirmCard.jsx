@@ -46,6 +46,28 @@ export default function ConfirmCard({
           />
         </div>
 
+        <div className="field">
+          <label htmlFor="confirm-task-tags">
+            Tags <span className="field-hint">nest with /</span>
+          </label>
+          <input
+            id="confirm-task-tags"
+            type="text"
+            value={(draft.tags ?? []).join(', ')}
+            placeholder="work/clients"
+            autoComplete="off"
+            onChange={(event) =>
+              onChange({
+                ...draft,
+                tags: event.target.value
+                  .split(',')
+                  .map((tag) => tag.trim())
+                  .filter(Boolean),
+              })
+            }
+          />
+        </div>
+
         <div className="field-row">
           <div className="field">
             <label htmlFor="confirm-task-due">Due</label>

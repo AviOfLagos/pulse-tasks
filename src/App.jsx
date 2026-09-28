@@ -6,9 +6,11 @@ import MiniCalendar from './components/MiniCalendar.jsx'
 import NeedsAttention from './components/NeedsAttention.jsx'
 import PermissionDialog from './components/PermissionDialog.jsx'
 import ProgressRing from './components/ProgressRing.jsx'
+import QuickSwitcher from './components/QuickSwitcher.jsx'
 import ReminderCard from './components/ReminderCard.jsx'
 import TaskComposer from './components/TaskComposer.jsx'
 import TaskList from './components/TaskList.jsx'
+import TagTree from './components/TagTree.jsx'
 import UndoToast from './components/UndoToast.jsx'
 import {
   CLOCK_TICK_MS,
@@ -30,21 +32,23 @@ import {
   parseReply,
   parseTaskInput,
 } from './utils/nlp.js'
+import { buildTagTree, matchesTag, tagPath } from './utils/tags.js'
 import {
   filterByDay,
   filterTodos,
   getDayIndex,
   getStats,
   getUrgentTodos,
+  matchesTab,
   sortTodos,
 } from './utils/todoFilters.js'
 
 /**
  * App shell.
  *
- * Layout: header → composer → two columns. Left is the tabs and the task list;
- * right is the calendar, "needs attention" and progress, which stack under the
- * list on a narrow screen.
+ * Layout: header → composer → three columns. Left is the nested-tag tree,
+ * middle is the tabs and the task list, right is the calendar, "needs
+ * attention" and progress. Both rails stack under the list on a narrow screen.
  *
  * It owns view state (tab / search), the todo store, and every mutation — the
  * voice hooks deliberately know nothing about the store, they hand their result
@@ -66,6 +70,9 @@ export default function App() {
   const [selectedDay, setSelectedDay] = useState(null)
   // A dictated task waiting to be confirmed: { id, draft, heard }.
   const [pending, setPending] = useState(null)
+  // A tag path from the sidebar; includes everything nested under it.
+  const [selectedTag, setSelectedTag] = useState(null)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
 
   const undoTimer = useRef(null)
   // What to resume once the first-use explainer is accepted.
@@ -87,16 +94,18 @@ export default function App() {
 
   // A picked day replaces the tab filter: "everything on Monday" is a different
   // question from "everything due today", and mixing the two reads as a bug.
-  const visibleTodos = useMemo(
-    () =>
-      selectedDay
-        ? filterByDay(todos, selectedDay, query)
-        : sortTodos(filterTodos(todos, tab, query, now), tab === 'done' ? 'created' : 'priority'),
-    [todos, tab, query, now, selectedDay],
-  )
+  // The tag filter narrows whatever the tab or the day already chose.
+  const visibleTodos = useMemo(() => {
+    const base = selectedDay
+      ? filterByDay(todos, selectedDay, query)
+      : sortTodos(filterTodos(todos, tab, query, now), tab === 'done' ? 'created' : 'priority')
+
+    return selectedTag ? base.filter((todo) => matchesTag(todo, selectedTag)) : base
+  }, [todos, tab, query, now, selectedDay, selectedTag])
   const urgentTodos = useMemo(() => getUrgentTodos(todos, now), [todos, now])
   const stats = useMemo(() => getStats(todos, now), [todos, now])
   const dayIndex = useMemo(() => getDayIndex(todos, now), [todos, now])
+  const tagTree = useMemo(() => buildTagTree(todos), [todos])
 
   const announce = useCallback((message) => setAnnouncement(message), [])
 
@@ -122,7 +131,13 @@ export default function App() {
     (input) => {
       if (!input?.title) return
 
-      const payload = { ...input, dueAt: input.dueAt ?? defaultDueAt() }
+      const payload = {
+        ...input,
+        dueAt: input.dueAt ?? defaultDueAt(),
+        // Adding a task inside a tag branch files it there, the way adding a
+        // note inside a folder does.
+        tags: input.tags?.length ? input.tags : selectedTag ? [selectedTag] : [],
+      }
       dispatch({ type: 'add', payload })
       announce(
         payload.dueAt
@@ -130,7 +145,7 @@ export default function App() {
           : `Added “${payload.title}”.`,
       )
     },
-    [announce, defaultDueAt, dispatch],
+    [announce, defaultDueAt, dispatch, selectedTag],
   )
 
   const handleToggle = useCallback(
@@ -208,6 +223,34 @@ export default function App() {
     announce(`Loaded ${extra.length} demo tasks.`)
   }, [announce, dispatch, offerUndo, todos])
 
+  const [revealId, setRevealId] = useState(null)
+
+  /**
+   * Jump to a task: drop every filter that could be hiding it, move to the tab
+   * it lives in, then focus the row. Without the filter reset the switcher
+   * would "find" tasks and then appear to do nothing.
+   */
+  const revealTodo = useCallback(
+    (todo) => {
+      setSwitcherOpen(false)
+      setSelectedDay(null)
+      setSelectedTag(null)
+      setQuery('')
+      setTab(todo.completed ? 'done' : matchesTab(todo, 'today', new Date()) ? 'today' : 'upcoming')
+      setRevealId(todo.id)
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!revealId) return
+
+    const row = document.querySelector(`[data-todo-id="${revealId}"]`)
+    row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    row?.focus()
+    setRevealId(null)
+  }, [revealId, visibleTodos])
+
   const handleUndo = useCallback(() => {
     if (!undo) return
 
@@ -267,10 +310,11 @@ export default function App() {
           title: parsed.title,
           dueAt: parsed.dueAt ?? defaultDueAt(),
           priority: parsed.priority,
+          tags: parsed.tags.length ? parsed.tags : selectedTag ? [selectedTag] : [],
         },
       })
     },
-    [announce, defaultDueAt, dispatch, synthesis, todos],
+    [announce, defaultDueAt, dispatch, selectedTag, synthesis, todos],
   )
 
   const handleVoiceAdd = useCallback(async () => {
@@ -474,6 +518,7 @@ export default function App() {
    * ---------------------------------------------------------------- */
 
   useShortcuts({
+    onSwitcher: () => setSwitcherOpen((open) => !open),
     onNew: () => composerRef.current?.focus(),
     onSearch: () => searchRef.current?.focus(),
     onComplete: () => {
@@ -487,7 +532,8 @@ export default function App() {
       handleToggle(row.dataset.todoId)
     },
     onEscape: () => {
-      if (recognition.listening) recognition.stop()
+      if (switcherOpen) setSwitcherOpen(false)
+      else if (recognition.listening) recognition.stop()
       else if (pending) cancelPending()
       else if (reminder.prompt) reminder.dismiss()
       else if (undo) dismissUndo()
@@ -524,6 +570,13 @@ export default function App() {
       />
 
       <div className="columns">
+        <TagTree
+          tree={tagTree}
+          selected={selectedTag}
+          total={stats.total}
+          onSelect={(path) => setSelectedTag(path)}
+        />
+
         <main className="column-main">
           <TaskList
             ref={searchRef}
@@ -540,6 +593,7 @@ export default function App() {
             }}
             onQueryChange={setQuery}
             onClearDay={() => setSelectedDay(null)}
+            onSelectTag={(tag) => setSelectedTag(tagPath(tag))}
             onToggle={handleToggle}
             onUpdate={handleUpdate}
             onRemove={handleRemove}
@@ -562,8 +616,8 @@ export default function App() {
 
       <footer className="app-footer">
         <p>
-          Everything stays in this browser. <kbd>N</kbd> new · <kbd>/</kbd> search ·{' '}
-          <kbd>Space</kbd> complete
+          Everything stays in this browser. <kbd>⌘K</kbd> jump · <kbd>N</kbd> new ·{' '}
+          <kbd>/</kbd> search · <kbd>Space</kbd> complete
         </p>
         {!recognition.supported ? (
           <p className="muted-note">
@@ -603,6 +657,18 @@ export default function App() {
 
       {undo ? (
         <UndoToast message={undo.message} onUndo={handleUndo} onDismiss={dismissUndo} />
+      ) : null}
+
+      {switcherOpen ? (
+        <QuickSwitcher
+          todos={todos}
+          onPick={revealTodo}
+          onCreate={(text) => {
+            setSwitcherOpen(false)
+            handleAdd(parseTaskInput(text, new Date()))
+          }}
+          onClose={() => setSwitcherOpen(false)}
+        />
       ) : null}
 
       {permissions.explainerOpen ? (
