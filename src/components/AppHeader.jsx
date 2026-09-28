@@ -1,16 +1,10 @@
 /**
- * App header: wordmark, live clock, and the switch that arms spoken reminders.
+ * The content top bar: live clock and the switch that arms spoken reminders.
  *
- * The old terminal chrome (dots, `~/tasks`, blinking cursor) is gone — the
- * header is now the only thing above the composer.
+ * The wordmark lives in the sidebar, so this row stays a status strip rather
+ * than a second place the app introduces itself.
  */
-export default function AppHeader({
-  now,
-  remindersOn,
-  onToggleReminders,
-  onLoadDemo,
-  voiceSupported,
-}) {
+export default function AppHeader({ now, remindersOn, onToggleReminders, voiceSupported }) {
   const time = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
   const date = now.toLocaleDateString(undefined, {
     weekday: 'long',
@@ -20,23 +14,12 @@ export default function AppHeader({
 
   return (
     <header className="app-header">
-      <div className="brand">
-        <h1 className="brand-name">Pulse Tasks</h1>
-        <p className="brand-sub">
-          {date} · {time}
-        </p>
-      </div>
+      <p className="header-clock">
+        <span className="header-date">{date}</span>
+        <span className="header-time">{time}</span>
+      </p>
 
       <div className="header-actions">
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={onLoadDemo}
-          title="Fill the app with a realistic set of tasks"
-        >
-          Load demo data
-        </button>
-
         <button
           type="button"
           className={`voice-switch${remindersOn ? ' is-on' : ''}`}

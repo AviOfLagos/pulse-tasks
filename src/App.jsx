@@ -6,11 +6,11 @@ import MiniCalendar from './components/MiniCalendar.jsx'
 import NeedsAttention from './components/NeedsAttention.jsx'
 import PermissionDialog from './components/PermissionDialog.jsx'
 import ProgressRing from './components/ProgressRing.jsx'
+import Sidebar from './components/Sidebar.jsx'
 import QuickSwitcher from './components/QuickSwitcher.jsx'
 import ReminderCard from './components/ReminderCard.jsx'
 import TaskComposer from './components/TaskComposer.jsx'
 import TaskList from './components/TaskList.jsx'
-import TagTree from './components/TagTree.jsx'
 import UndoToast from './components/UndoToast.jsx'
 import {
   CLOCK_TICK_MS,
@@ -46,9 +46,10 @@ import {
 /**
  * App shell.
  *
- * Layout: header → composer → three columns. Left is the nested-tag tree,
- * middle is the tabs and the task list, right is the calendar, "needs
- * attention" and progress. Both rails stack under the list on a narrow screen.
+ * Layout is an app shell: a full-height tag navbar on the left, and to its
+ * right the top bar, the composer and a workspace of list + side rail. The
+ * rail splits into two columns on a very wide screen (four in total), folds to
+ * two columns on a laptop, and stacks under the list on a phone.
  *
  * It owns view state (tab / search), the todo store, and every mutation — the
  * voice hooks deliberately know nothing about the store, they hand their result
@@ -542,89 +543,90 @@ export default function App() {
 
   return (
     <div className="app">
-      <AppHeader
-        now={now}
-        remindersOn={remindersOn}
-        onToggleReminders={() => {
-          const next = !remindersOn
-          setRemindersOn(next)
-          if (next) {
-            pendingVoice.current = null
-            permissions.ensure()
-          }
-          else synthesis.cancel()
-          announce(`Voice reminders ${next ? 'on' : 'off'}.`)
-        }}
+      <Sidebar
+        tagTree={tagTree}
+        selectedTag={selectedTag}
+        total={stats.total}
+        onSelectTag={setSelectedTag}
         onLoadDemo={handleLoadDemo}
-        voiceSupported={synthesis.supported}
       />
 
-      <TaskComposer
-        ref={composerRef}
-        onAdd={handleAdd}
-        onVoice={handleVoiceAdd}
-        listening={listenTarget === 'composer'}
-        transcript={recognition.transcript}
-        voiceError={listenTarget === 'composer' ? recognition.error : ''}
-        micSupported={recognition.supported}
-      />
-
-      <div className="columns">
-        <TagTree
-          tree={tagTree}
-          selected={selectedTag}
-          total={stats.total}
-          onSelect={(path) => setSelectedTag(path)}
+      <div className="content">
+        <AppHeader
+          now={now}
+          remindersOn={remindersOn}
+          onToggleReminders={() => {
+            const next = !remindersOn
+            setRemindersOn(next)
+            if (next) {
+              pendingVoice.current = null
+              permissions.ensure()
+            } else synthesis.cancel()
+            announce(`Voice reminders ${next ? 'on' : 'off'}.`)
+          }}
+          voiceSupported={synthesis.supported}
         />
 
-        <main className="column-main">
-          <TaskList
-            ref={searchRef}
-            todos={visibleTodos}
-            tab={tab}
-            counts={{ today: stats.today, upcoming: stats.upcoming, done: stats.done }}
-            query={query}
-            total={stats.total}
-            selectedDay={selectedDay}
-            onTabChange={(next) => {
-              // Picking a tab is a different question from picking a day.
-              setSelectedDay(null)
-              setTab(next)
-            }}
-            onQueryChange={setQuery}
-            onClearDay={() => setSelectedDay(null)}
-            onSelectTag={(tag) => setSelectedTag(tagPath(tag))}
-            onToggle={handleToggle}
-            onUpdate={handleUpdate}
-            onRemove={handleRemove}
-            onClearDone={handleClearDone}
-            onLoadDemo={handleLoadDemo}
-          />
-        </main>
+        <TaskComposer
+          ref={composerRef}
+          onAdd={handleAdd}
+          onVoice={handleVoiceAdd}
+          listening={listenTarget === 'composer'}
+          transcript={recognition.transcript}
+          voiceError={listenTarget === 'composer' ? recognition.error : ''}
+          micSupported={recognition.supported}
+        />
 
-        <aside className="column-side" aria-label="Calendar, focus and progress">
-          <MiniCalendar
-            now={now}
-            dayIndex={dayIndex}
-            selectedDay={selectedDay}
-            onSelectDay={setSelectedDay}
-          />
-          <NeedsAttention todos={urgentTodos} now={now} onComplete={handleComplete} />
-          <ProgressRing stats={stats} />
-        </aside>
-      </div>
+        <div className="workspace">
+          <main className="list-col">
+            <TaskList
+              ref={searchRef}
+              todos={visibleTodos}
+              tab={tab}
+              counts={{ today: stats.today, upcoming: stats.upcoming, done: stats.done }}
+              query={query}
+              total={stats.total}
+              selectedDay={selectedDay}
+              onTabChange={(next) => {
+                // Picking a tab is a different question from picking a day.
+                setSelectedDay(null)
+                setTab(next)
+              }}
+              onQueryChange={setQuery}
+              onClearDay={() => setSelectedDay(null)}
+              onSelectTag={(tag) => setSelectedTag(tagPath(tag))}
+              onToggle={handleToggle}
+              onUpdate={handleUpdate}
+              onRemove={handleRemove}
+              onClearDone={handleClearDone}
+              onLoadDemo={handleLoadDemo}
+            />
+          </main>
 
-      <footer className="app-footer">
-        <p>
-          Everything stays in this browser. <kbd>⌘K</kbd> jump · <kbd>N</kbd> new ·{' '}
-          <kbd>/</kbd> search · <kbd>Space</kbd> complete
-        </p>
-        {!recognition.supported ? (
-          <p className="muted-note">
-            Voice input needs a Chromium browser or Safari. Reminders still appear as cards here.
+          <aside className="side-col" aria-label="Calendar, focus and progress">
+            <MiniCalendar
+              now={now}
+              dayIndex={dayIndex}
+              selectedDay={selectedDay}
+              onSelectDay={setSelectedDay}
+            />
+            <NeedsAttention todos={urgentTodos} now={now} onComplete={handleComplete} />
+            <ProgressRing stats={stats} />
+          </aside>
+        </div>
+
+        <footer className="app-footer">
+          <p>
+            Everything stays in this browser. <kbd>⌘K</kbd> jump · <kbd>N</kbd> new ·{' '}
+            <kbd>/</kbd> search · <kbd>Space</kbd> complete
           </p>
-        ) : null}
-      </footer>
+          {!recognition.supported ? (
+            <p className="muted-note">
+              Voice input needs a Chromium browser or Safari. Reminders still appear as cards here.
+            </p>
+          ) : null}
+        </footer>
+      </div>
 
       {/* Screen-reader-only status region for action feedback. */}
       <p className="sr-only" role="status" aria-live="polite">

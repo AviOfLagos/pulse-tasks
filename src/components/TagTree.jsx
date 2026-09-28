@@ -80,7 +80,7 @@ export default function TagTree({ tree, selected, total, onSelect }) {
   for (const ancestor of tagAncestors(selected ?? '')) visible.add(ancestor)
 
   return (
-    <nav className="card tag-card" aria-label="Tags">
+    <nav className="tag-card" aria-label="Tags">
       <h2 className="card-title">Tags</h2>
 
       <ul className="tag-list">
