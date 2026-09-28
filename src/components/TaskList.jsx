@@ -25,6 +25,7 @@ const TaskList = forwardRef(function TaskList(
     onLoadDemo,
     selectedDay,
     onClearDay,
+    onSelectTag,
   },
   searchRef,
 ) {
@@ -82,6 +83,7 @@ const TaskList = forwardRef(function TaskList(
               onToggle={onToggle}
               onUpdate={onUpdate}
               onRemove={onRemove}
+              onSelectTag={onSelectTag}
             />
           ))}
         </ul>

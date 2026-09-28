@@ -11,7 +11,14 @@ import { formatDueChip, isDue, toDateTimeLocal } from '../utils/date.js'
  * and opens from either the title or the pencil; Enter saves, Escape cancels,
  * and focus returns to the Edit button so keyboard users never lose their place.
  */
-export default function TaskRow({ todo, index = 0, onToggle, onUpdate, onRemove }) {
+export default function TaskRow({
+  todo,
+  index = 0,
+  onToggle,
+  onUpdate,
+  onRemove,
+  onSelectTag,
+}) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(() => toDraft(todo))
   const [error, setError] = useState('')
@@ -53,6 +60,7 @@ export default function TaskRow({ todo, index = 0, onToggle, onUpdate, onRemove 
       description: draft.description,
       priority: draft.priority,
       dueAt: draft.dueAt ? draft.dueAt : null,
+      tags: draft.tags,
     })
     setEditing(false)
     setError('')
@@ -102,6 +110,23 @@ export default function TaskRow({ todo, index = 0, onToggle, onUpdate, onRemove 
             {todo.title}
           </button>
           {todo.description ? <p className="task-notes">{todo.description}</p> : null}
+
+          {(todo.tags ?? []).length > 0 ? (
+            <ul className="task-tags">
+              {todo.tags.map((tag) => (
+                <li key={tag}>
+                  <button
+                    type="button"
+                    className="tag-chip"
+                    onClick={() => onSelectTag?.(tag)}
+                    title={`Show everything under ${tag}`}
+                  >
+                    #{tag}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
 
         {dueLabel ? (
@@ -191,6 +216,20 @@ export default function TaskRow({ todo, index = 0, onToggle, onUpdate, onRemove 
           </div>
 
           <div className="field">
+            <label htmlFor={`tags-${todo.id}`}>
+              Tags <span className="field-hint">comma separated · nest with /</span>
+            </label>
+            <input
+              id={`tags-${todo.id}`}
+              type="text"
+              value={draft.tags}
+              placeholder="work/clients, billing"
+              autoComplete="off"
+              onChange={(event) => setDraft({ ...draft, tags: event.target.value })}
+            />
+          </div>
+
+          <div className="field">
             <label htmlFor={`notes-${todo.id}`}>
               Notes <span className="field-hint">optional</span>
             </label>
@@ -231,5 +270,6 @@ function toDraft(todo) {
     description: todo.description ?? '',
     priority: todo.priority,
     dueAt: toDateTimeLocal(todo.dueAt),
+    tags: (todo.tags ?? []).join(', '),
   }
 }

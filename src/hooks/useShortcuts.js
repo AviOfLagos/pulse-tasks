@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 
 /**
- * Global keyboard shortcuts: N new task, / search, Space complete.
+ * Global keyboard shortcuts: ⌘K quick switcher, N new task, / search,
+ * Space complete.
  *
  * Keys are ignored while the user is typing (any input, textarea, select or
  * contenteditable), so "n" in a task title stays an "n". Escape is the one key
@@ -25,6 +26,14 @@ export function useShortcuts(handlers) {
     }
 
     const onKeyDown = (event) => {
+      // The switcher is the one shortcut that works from inside a field —
+      // that is the whole point of a switcher.
+      if ((event.metaKey || event.ctrlKey) && (event.key === 'k' || event.key === 'K')) {
+        event.preventDefault()
+        ref.current.onSwitcher?.()
+        return
+      }
+
       if (event.metaKey || event.ctrlKey || event.altKey) return
 
       const typing = isTyping(event.target)
