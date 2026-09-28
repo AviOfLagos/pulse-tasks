@@ -11,8 +11,10 @@ import TodoFields, { draftFromTodo, draftToPayload } from './TodoFields.jsx'
  *  - entering edit mode focuses the first field (and selects its text)
  *  - leaving edit mode (save, cancel or Escape) returns focus to the Edit
  *    button, so keyboard users never lose their place.
+ *
+ * `index` is only used to stagger the entrance animation.
  */
-export default function TodoItem({ todo, onToggle, onUpdate, onRemove }) {
+export default function TodoItem({ todo, index = 0, onToggle, onUpdate, onRemove }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(() => draftFromTodo(todo))
   const [error, setError] = useState('')
@@ -78,7 +80,11 @@ export default function TodoItem({ todo, onToggle, onUpdate, onRemove }) {
     .join(' ')
 
   return (
-    <li className={classes} data-testid="todo-item">
+    <li
+      className={classes}
+      data-testid="todo-item"
+      style={{ '--i': Math.min(index, 12) }}
+    >
       <div className="todo-item-main">
         <input
           type="checkbox"
@@ -130,22 +136,24 @@ export default function TodoItem({ todo, onToggle, onUpdate, onRemove }) {
           {editing ? null : (
             <button
               type="button"
-              className="btn btn-ghost"
+              className="icon-btn"
               ref={editButtonRef}
               onClick={startEditing}
               aria-label={`Edit “${todo.title}”`}
+              title="Edit"
             >
-              Edit
+              ✎
             </button>
           )}
 
           <button
             type="button"
-            className="btn btn-danger"
+            className="icon-btn icon-btn-danger"
             onClick={() => onRemove(todo)}
             aria-label={`Delete “${todo.title}”`}
+            title="Delete"
           >
-            Delete
+            ✕
           </button>
         </div>
       </div>

@@ -4,10 +4,11 @@ import TodoItem from './TodoItem.jsx'
 export default function TodoList({ todos, onToggle, onUpdate, onRemove }) {
   return (
     <ul className="todo-list" data-testid="todo-list">
-      {todos.map((todo) => (
+      {todos.map((todo, index) => (
         <TodoItem
           key={todo.id}
           todo={todo}
+          index={index}
           onToggle={onToggle}
           onUpdate={onUpdate}
           onRemove={onRemove}

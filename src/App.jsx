@@ -115,14 +115,29 @@ export default function App() {
             pulse<span className="brand-accent">tasks</span>
           </h1>
         </div>
-        <p className="app-subtitle">saved on this device · no account, no server</p>
+
+        <p className="header-clock">
+          <span className="clock-dot" aria-hidden="true" />
+          {now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+          <span className="clock-sep" aria-hidden="true">
+            ·
+          </span>
+          {now.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+        </p>
       </header>
 
       <div className="app-body">
         <main className="app-main">
           <TodoForm onAdd={handleAdd} />
 
-          <section className="panel" aria-label="Task list">
+          <section className="panel panel-terminal" aria-label="Task list">
+            <div className="panel-chrome" aria-hidden="true">
+              <span className="chrome-dot" />
+              <span className="chrome-dot" />
+              <span className="chrome-dot" />
+              <span className="chrome-title">~/tasks</span>
+            </div>
+
             <TodoTabs
               tab={tab}
               onChange={setTab}

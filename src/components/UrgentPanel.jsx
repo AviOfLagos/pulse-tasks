@@ -35,8 +35,12 @@ export default function UrgentPanel({ todos, now, onToggle }) {
 
       {todos.length > 0 ? (
         <ul className="urgent-list" data-testid="urgent-list">
-          {todos.map((todo) => (
-            <li key={todo.id} className={`urgent-item priority-${todo.priority}`}>
+          {todos.map((todo, index) => (
+            <li
+              key={todo.id}
+              className={`urgent-item priority-${todo.priority}`}
+              style={{ '--i': Math.min(index, 6) }}
+            >
               <button
                 type="button"
                 className="urgent-check"
