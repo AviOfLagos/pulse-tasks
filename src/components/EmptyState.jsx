@@ -1,9 +1,12 @@
 /** Placeholder shown when nothing matches the current tab or search. */
-export default function EmptyState({ hasTodos, tab, query, onLoadDemo }) {
+export default function EmptyState({ hasTodos, tab, query, selectedDay, onLoadDemo }) {
   let title = 'No tasks yet'
   let hint = 'Add one above — type it, or press the mic and say it.'
 
-  if (query.trim()) {
+  if (selectedDay) {
+    title = 'Nothing on this day'
+    hint = 'Pick another day, or clear the filter to see everything.'
+  } else if (query.trim()) {
     title = 'No matches'
     hint = `Nothing matches “${query.trim()}”.`
   } else if (hasTodos && tab === 'today') {
@@ -24,7 +27,7 @@ export default function EmptyState({ hasTodos, tab, query, onLoadDemo }) {
 
       {/* Only offered on a genuinely empty app — never as a way out of a search
           that found nothing. */}
-      {!hasTodos && !query.trim() && onLoadDemo ? (
+      {!hasTodos && !query.trim() && !selectedDay && onLoadDemo ? (
         <button type="button" className="btn btn-ghost btn-sm empty-demo" onClick={onLoadDemo}>
           Load demo data
         </button>

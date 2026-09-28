@@ -1,6 +1,7 @@
 import { forwardRef } from 'react'
 
 import EmptyState from './EmptyState.jsx'
+import { formatDayLabel } from './MiniCalendar.jsx'
 import Tabs from './Tabs.jsx'
 import TaskRow from './TaskRow.jsx'
 
@@ -22,6 +23,8 @@ const TaskList = forwardRef(function TaskList(
     onRemove,
     onClearDone,
     onLoadDemo,
+    selectedDay,
+    onClearDay,
   },
   searchRef,
 ) {
@@ -53,6 +56,22 @@ const TaskList = forwardRef(function TaskList(
         </div>
       </div>
 
+      {selectedDay ? (
+        <p className="day-filter">
+          <span className="day-filter-label">Showing:</span>
+          <span className="chip chip-time">{formatDayLabel(selectedDay)}</span>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClearDay}
+            aria-label="Show all days"
+            title="Clear day filter"
+          >
+            ✕
+          </button>
+        </p>
+      ) : null}
+
       {todos.length > 0 ? (
         <ul className="task-list" data-testid="todo-list">
           {todos.map((todo, index) => (
@@ -67,7 +86,13 @@ const TaskList = forwardRef(function TaskList(
           ))}
         </ul>
       ) : (
-        <EmptyState hasTodos={total > 0} tab={tab} query={query} onLoadDemo={onLoadDemo} />
+        <EmptyState
+          hasTodos={total > 0}
+          tab={tab}
+          query={query}
+          selectedDay={selectedDay}
+          onLoadDemo={onLoadDemo}
+        />
       )}
     </section>
   )

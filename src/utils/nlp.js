@@ -189,6 +189,19 @@ function matchDay(lower, cuts, now) {
   return null
 }
 
+/** "urgent" → high, "someday" → low. `found` says whether the text mentioned it at all. */
+function matchPriority(lower, cuts) {
+  for (const [pattern, level] of PRIORITY_PATTERNS) {
+    const match = pattern.exec(lower)
+    if (match) {
+      cut(cuts, match)
+      return { priority: level, found: true }
+    }
+  }
+
+  return { priority: DEFAULT_PRIORITY, found: false }
+}
+
 /**
  * Parses a phrase into a timestamp. Returns null when it holds no time at all.
  * Exported because the reminder reply ("change it to 6pm") needs the same rules.
@@ -229,15 +242,7 @@ export function parseTaskInput(raw, now = new Date(), defaultHour = DEFAULT_DUE_
   const lower = text.toLowerCase()
   const cuts = []
 
-  let priority = DEFAULT_PRIORITY
-  for (const [pattern, level] of PRIORITY_PATTERNS) {
-    const match = pattern.exec(lower)
-    if (match) {
-      priority = level
-      cut(cuts, match)
-      break
-    }
-  }
+  const { priority } = matchPriority(lower, cuts)
 
   const { dueAt, cuts: dueCuts } = parseDueExpression(text, now, defaultHour)
   cuts.push(...dueCuts)
@@ -283,6 +288,122 @@ export function parseReply(raw, now = new Date(), defaultHour = DEFAULT_DUE_HOUR
 
   if (/\b(?:no|nope|not yet|later|snooze|in a bit|hold on|remind me later)\b/.test(lower)) {
     return { intent: 'snooze' }
+  }
+
+  return { intent: 'unknown' }
+}
+
+/**
+ * Splits a phrase into "when" and "what is left".
+ * "tomorrow 6pm" → { dueAt, remainder: '' }; "buy oat milk" → { dueAt: null,
+ * remainder: 'Buy oat milk' }. That difference is how an edit command tells a
+ * reschedule from a rename.
+ */
+export function splitDueExpression(raw, now = new Date(), defaultHour = DEFAULT_DUE_HOUR) {
+  const text = String(raw ?? '').replace(/\s+/g, ' ').trim()
+  const { dueAt, cuts } = parseDueExpression(text, now, defaultHour)
+
+  return { dueAt, remainder: buildTitle(text, cuts) }
+}
+
+/** Normalised words, for loose title matching. */
+function words(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+/**
+ * Finds the task a spoken phrase refers to.
+ *
+ * Speech recognition rarely returns a title verbatim, so this scores rather
+ * than matches: exact, then prefix, then substring, then shared words. Below
+ * half the words in common it gives up and returns null — acting on the wrong
+ * task is worse than admitting it did not catch the name.
+ */
+export function findTodoByTitle(todos, phrase) {
+  const needle = words(phrase).join(' ')
+  if (!needle) return null
+
+  let best = null
+  let bestScore = 0
+
+  for (const todo of todos) {
+    const hay = words(todo.title).join(' ')
+    if (!hay) continue
+
+    let score
+    if (hay === needle) score = 1
+    else if (hay.startsWith(needle) || needle.startsWith(hay)) score = 0.9
+    else if (hay.includes(needle) || needle.includes(hay)) score = 0.8
+    else {
+      const needleWords = new Set(words(needle))
+      const shared = words(hay).filter((word) => needleWords.has(word)).length
+      score = shared / Math.max(needleWords.size, words(hay).length)
+    }
+
+    // On a tie, prefer the task still to be done.
+    const better = score > bestScore || (score === bestScore && best?.completed && !todo.completed)
+    if (better) {
+      best = todo
+      bestScore = score
+    }
+  }
+
+  return bestScore >= 0.5 ? best : null
+}
+
+/**
+ * "Edit water the plants to 7pm" / "change buy milk to buy oat milk".
+ * Returns { todo, changes } or null when it is not an edit command, or when
+ * the task could not be identified.
+ */
+export function parseEditCommand(raw, todos = [], now = new Date(), defaultHour = DEFAULT_DUE_HOUR) {
+  const text = String(raw ?? '').replace(/\s+/g, ' ').trim()
+  const match = /^(?:edit|change|update|rename|reschedule|move)\s+(.+?)\s+to\s+(.+)$/i.exec(text)
+  if (!match) return null
+
+  const todo = findTodoByTitle(todos, match[1])
+  if (!todo) return null
+
+  const rest = match[2]
+  const cuts = []
+  const { priority, found } = matchPriority(rest.toLowerCase(), cuts)
+  const { dueAt, remainder } = splitDueExpression(buildTitle(rest, cuts), now, defaultHour)
+
+  const changes = {}
+  if (dueAt) changes.dueAt = dueAt
+  if (found) changes.priority = priority
+  if (remainder) changes.title = remainder
+
+  return Object.keys(changes).length > 0 ? { todo, changes } : null
+}
+
+/**
+ * The answer to "Add '<title>' for <time>? Say yes or no."
+ * intent: 'confirm' | 'cancel' | 'reschedule' | 'unknown'
+ */
+export function parseConfirmReply(raw, now = new Date(), defaultHour = DEFAULT_DUE_HOUR) {
+  const lower = String(raw ?? '').trim().toLowerCase()
+  if (!lower) return { intent: 'unknown' }
+
+  const reschedule =
+    /\b(?:change|make|move|set|shift)\s*(?:the\s+)?(?:time|it|this|that)?\s*(?:to|for)\s+(.+)$/.exec(
+      lower,
+    )
+  if (reschedule) {
+    const { dueAt } = parseDueExpression(reschedule[1], now, defaultHour)
+    if (dueAt) return { intent: 'reschedule', dueAt }
+  }
+
+  if (/\b(?:no|nope|cancel|discard|forget it|never mind|nevermind|delete it)\b/.test(lower)) {
+    return { intent: 'cancel' }
+  }
+
+  if (/\b(?:yes|yeah|yep|yup|add it|add|confirm|correct|that's right|sure|ok(?:ay)?|save it)\b/.test(lower)) {
+    return { intent: 'confirm' }
   }
 
   return { intent: 'unknown' }

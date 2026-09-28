@@ -5,7 +5,7 @@
  */
 
 import { PRIORITY_RANK, URGENT_WINDOW_DAYS } from '../constants.js'
-import { dueDayOffset, isDue, parseDueAt } from './date.js'
+import { dueDayOffset, isDue, parseDueAt, toISODateString } from './date.js'
 
 function matchesQuery(todo, query) {
   const needle = String(query ?? '').trim().toLowerCase()
@@ -142,4 +142,42 @@ export function getDueReminders(todos, reference = new Date()) {
   return todos
     .filter((todo) => isDue(todo, reference) && !todo.promptedAt)
     .sort((a, b) => parseDueAt(a.dueAt).getTime() - parseDueAt(b.dueAt).getTime())
+}
+
+/** The local calendar day a task belongs to, as `YYYY-MM-DD`, or null. */
+export function dayKeyOf(todo) {
+  const date = parseDueAt(todo?.dueAt)
+  return date ? toISODateString(date) : null
+}
+
+/**
+ * What the calendar needs to draw its dots: one entry per day that has tasks.
+ * `overdue` counts unfinished tasks whose moment has passed, which is what
+ * turns a day's dot red.
+ */
+export function getDayIndex(todos, reference = new Date()) {
+  const index = new Map()
+
+  for (const todo of todos) {
+    const key = dayKeyOf(todo)
+    if (!key) continue
+
+    const entry = index.get(key) ?? { total: 0, done: 0, overdue: 0 }
+    entry.total += 1
+    if (todo.completed) entry.done += 1
+    else if (isDue(todo, reference)) entry.overdue += 1
+
+    index.set(key, entry)
+  }
+
+  return index
+}
+
+/** Tasks due on one calendar day, soonest first. */
+export function filterByDay(todos, dayKey, query = '') {
+  if (!dayKey) return []
+
+  return todos
+    .filter((todo) => dayKeyOf(todo) === dayKey && matchesQuery(todo, query))
+    .sort(byDueDate)
 }

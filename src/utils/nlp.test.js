@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { parseDueExpression, parseReply, parseTaskInput } from './nlp.js'
+import {
+  findTodoByTitle,
+  parseConfirmReply,
+  parseDueExpression,
+  parseEditCommand,
+  parseReply,
+  parseTaskInput,
+  splitDueExpression,
+} from './nlp.js'
 import { formatClockTime } from './date.js'
 
 /** Monday 28 September 2026, 12:00 local. */
@@ -129,5 +137,102 @@ describe('parseReply', () => {
   test('formatClockTime renders the rescheduled moment', () => {
     const { dueAt } = parseReply('change it to 6pm', NOW)
     assert.match(formatClockTime(dueAt, 'en-US'), /6:00/)
+  })
+})
+
+describe('splitDueExpression', () => {
+  test('separates a pure time phrase from a rename', () => {
+    assert.deepEqual(splitDueExpression('tomorrow 6pm', NOW).remainder, '')
+    assert.equal(splitDueExpression('buy oat milk', NOW).remainder, 'Buy oat milk')
+    assert.equal(splitDueExpression('buy oat milk at 6pm', NOW).remainder, 'Buy oat milk')
+  })
+})
+
+describe('findTodoByTitle', () => {
+  const todos = [
+    { id: 'a', title: 'Water the plants', completed: false },
+    { id: 'b', title: 'Send the invoice to Vettika', completed: false },
+    { id: 'c', title: 'Water the plants', completed: true },
+  ]
+
+  test('matches exactly, and prefers the unfinished one', () => {
+    assert.equal(findTodoByTitle(todos, 'water the plants').id, 'a')
+  })
+
+  test('matches a partial phrase', () => {
+    assert.equal(findTodoByTitle(todos, 'the invoice').id, 'b')
+    assert.equal(findTodoByTitle(todos, 'send invoice Vettika').id, 'b')
+  })
+
+  test('gives up rather than guessing', () => {
+    assert.equal(findTodoByTitle(todos, 'book a flight'), null)
+    assert.equal(findTodoByTitle(todos, ''), null)
+    assert.equal(findTodoByTitle([], 'anything'), null)
+  })
+})
+
+describe('parseEditCommand', () => {
+  const todos = [
+    { id: 'a', title: 'Water the plants', completed: false },
+    { id: 'b', title: 'Buy milk', completed: false },
+  ]
+
+  test('"change X to 7pm" reschedules', () => {
+    const result = parseEditCommand('change water the plants to 7pm', todos, NOW)
+
+    assert.equal(result.todo.id, 'a')
+    assert.deepEqual(local(result.changes.dueAt), [2026, 8, 28, 19, 0])
+    assert.equal(result.changes.title, undefined)
+  })
+
+  test('"edit X to Y" renames', () => {
+    const result = parseEditCommand('edit buy milk to buy oat milk', todos, NOW)
+
+    assert.equal(result.todo.id, 'b')
+    assert.equal(result.changes.title, 'Buy oat milk')
+    assert.equal(result.changes.dueAt, undefined)
+  })
+
+  test('a rename can carry a time and a priority', () => {
+    const result = parseEditCommand('change buy milk to buy oat milk tomorrow 8am, urgent', todos, NOW)
+
+    assert.equal(result.changes.title, 'Buy oat milk')
+    assert.equal(result.changes.priority, 'high')
+    assert.deepEqual(local(result.changes.dueAt), [2026, 8, 29, 8, 0])
+  })
+
+  test('is null for anything that is not an edit command', () => {
+    assert.equal(parseEditCommand('buy milk tomorrow', todos, NOW), null)
+    assert.equal(parseEditCommand('change something unknown to 7pm', todos, NOW), null)
+    assert.equal(parseEditCommand('', todos, NOW), null)
+  })
+})
+
+describe('parseConfirmReply', () => {
+  test('yes and "add it" confirm', () => {
+    assert.equal(parseConfirmReply('yes', NOW).intent, 'confirm')
+    assert.equal(parseConfirmReply('yeah add it', NOW).intent, 'confirm')
+  })
+
+  test('no and cancel discard', () => {
+    assert.equal(parseConfirmReply('no', NOW).intent, 'cancel')
+    assert.equal(parseConfirmReply('cancel that', NOW).intent, 'cancel')
+  })
+
+  test('"change time to 8pm" reschedules the pending task', () => {
+    const result = parseConfirmReply('change time to 8pm', NOW)
+
+    assert.equal(result.intent, 'reschedule')
+    assert.deepEqual(local(result.dueAt), [2026, 8, 28, 20, 0])
+  })
+
+  test('"change it to tomorrow morning" reschedules', () => {
+    assert.deepEqual(local(parseConfirmReply('change it to tomorrow morning', NOW).dueAt), [
+      2026, 8, 29, 9, 0,
+    ])
+  })
+
+  test('anything else is unknown', () => {
+    assert.equal(parseConfirmReply('bananas', NOW).intent, 'unknown')
   })
 })

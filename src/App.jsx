@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import AppHeader from './components/AppHeader.jsx'
+import ConfirmCard from './components/ConfirmCard.jsx'
+import MiniCalendar from './components/MiniCalendar.jsx'
 import NeedsAttention from './components/NeedsAttention.jsx'
 import PermissionDialog from './components/PermissionDialog.jsx'
 import ProgressRing from './components/ProgressRing.jsx'
@@ -8,22 +10,41 @@ import ReminderCard from './components/ReminderCard.jsx'
 import TaskComposer from './components/TaskComposer.jsx'
 import TaskList from './components/TaskList.jsx'
 import UndoToast from './components/UndoToast.jsx'
-import { CLOCK_TICK_MS, REPLY_LISTEN_MS, SNOOZE_MINUTES, UNDO_TIMEOUT } from './constants.js'
+import {
+  CLOCK_TICK_MS,
+  DEFAULT_DUE_HOUR,
+  REPLY_LISTEN_MS,
+  SNOOZE_MINUTES,
+  UNDO_TIMEOUT,
+} from './constants.js'
 import { missingDemoTodos } from './state/demoTodos.js'
 import { useReminders } from './hooks/useReminders.js'
 import { useShortcuts } from './hooks/useShortcuts.js'
 import { useSpeechRecognition, useSpeechSynthesis } from './hooks/useSpeech.js'
 import { useTodos } from './hooks/useTodos.js'
 import { useVoicePermissions } from './hooks/useVoicePermissions.js'
-import { formatClockTime } from './utils/date.js'
-import { parseReply, parseTaskInput } from './utils/nlp.js'
-import { filterTodos, getStats, getUrgentTodos, sortTodos } from './utils/todoFilters.js'
+import { formatClockTime, formatDueChip, toDueAt } from './utils/date.js'
+import {
+  parseConfirmReply,
+  parseEditCommand,
+  parseReply,
+  parseTaskInput,
+} from './utils/nlp.js'
+import {
+  filterByDay,
+  filterTodos,
+  getDayIndex,
+  getStats,
+  getUrgentTodos,
+  sortTodos,
+} from './utils/todoFilters.js'
 
 /**
  * App shell.
  *
- * Layout (top to bottom): header → composer → progress ring + needs attention
- * → full-width task list with tabs.
+ * Layout: header → composer → two columns. Left is the tabs and the task list;
+ * right is the calendar, "needs attention" and progress, which stack under the
+ * list on a narrow screen.
  *
  * It owns view state (tab / search), the todo store, and every mutation — the
  * voice hooks deliberately know nothing about the store, they hand their result
@@ -41,10 +62,16 @@ export default function App() {
   const [remindersOn, setRemindersOn] = useState(true)
   // Which surface the shared microphone is currently feeding.
   const [listenTarget, setListenTarget] = useState(null)
+  // A day picked in the calendar, as `YYYY-MM-DD`, or null for "all days".
+  const [selectedDay, setSelectedDay] = useState(null)
+  // A dictated task waiting to be confirmed: { id, draft, heard }.
+  const [pending, setPending] = useState(null)
 
   const undoTimer = useRef(null)
   // What to resume once the first-use explainer is accepted.
   const pendingVoice = useRef(null)
+  // Set below; lets the explainer resume a confirmation it interrupted.
+  const confirmListenRef = useRef(null)
   const composerRef = useRef(null)
   const searchRef = useRef(null)
 
@@ -58,12 +85,18 @@ export default function App() {
     return () => clearInterval(id)
   }, [])
 
+  // A picked day replaces the tab filter: "everything on Monday" is a different
+  // question from "everything due today", and mixing the two reads as a bug.
   const visibleTodos = useMemo(
-    () => sortTodos(filterTodos(todos, tab, query, now), tab === 'done' ? 'created' : 'priority'),
-    [todos, tab, query, now],
+    () =>
+      selectedDay
+        ? filterByDay(todos, selectedDay, query)
+        : sortTodos(filterTodos(todos, tab, query, now), tab === 'done' ? 'created' : 'priority'),
+    [todos, tab, query, now, selectedDay],
   )
   const urgentTodos = useMemo(() => getUrgentTodos(todos, now), [todos, now])
   const stats = useMemo(() => getStats(todos, now), [todos, now])
+  const dayIndex = useMemo(() => getDayIndex(todos, now), [todos, now])
 
   const announce = useCallback((message) => setAnnouncement(message), [])
 
@@ -79,18 +112,25 @@ export default function App() {
    * Mutations
    * ---------------------------------------------------------------- */
 
-  const handleAdd = useCallback(
-    (payload) => {
-      if (!payload?.title) return
+  /** A task with no spoken or typed time lands on the day you are looking at. */
+  const defaultDueAt = useCallback(
+    () => (selectedDay ? toDueAt(selectedDay, DEFAULT_DUE_HOUR) : null),
+    [selectedDay],
+  )
 
+  const handleAdd = useCallback(
+    (input) => {
+      if (!input?.title) return
+
+      const payload = { ...input, dueAt: input.dueAt ?? defaultDueAt() }
       dispatch({ type: 'add', payload })
       announce(
         payload.dueAt
-          ? `Added “${payload.title}”, due ${formatClockTime(payload.dueAt)}.`
+          ? `Added “${payload.title}”, due ${formatDueChip(payload.dueAt)}.`
           : `Added “${payload.title}”.`,
       )
     },
-    [announce, dispatch],
+    [announce, defaultDueAt, dispatch],
   )
 
   const handleToggle = useCallback(
@@ -195,6 +235,44 @@ export default function App() {
     [recognition],
   )
 
+  /**
+   * What a dictated sentence means.
+   *
+   * An edit command applies straight away — you named the task and the change,
+   * so there is nothing left to confirm. Anything else becomes a *proposal*:
+   * dictation is a guess twice over (what was heard, then what the parser made
+   * of it), so a new task is read back and waits for a yes.
+   */
+  const handleTranscript = useCallback(
+    (transcript) => {
+      const edit = parseEditCommand(transcript, todos, new Date())
+
+      if (edit) {
+        dispatch({ type: 'update', payload: { id: edit.todo.id, changes: edit.changes } })
+
+        const title = edit.changes.title ?? edit.todo.title
+        const when = edit.changes.dueAt ? `, due ${formatDueChip(edit.changes.dueAt)}` : ''
+        announce(`Updated “${title}”${when}.`)
+        synthesis.speak(`Updated ${title}.`)
+        return
+      }
+
+      const parsed = parseTaskInput(transcript, new Date())
+      if (!parsed.title) return
+
+      setPending({
+        id: 1,
+        heard: transcript,
+        draft: {
+          title: parsed.title,
+          dueAt: parsed.dueAt ?? defaultDueAt(),
+          priority: parsed.priority,
+        },
+      })
+    },
+    [announce, defaultDueAt, dispatch, synthesis, todos],
+  )
+
   const handleVoiceAdd = useCallback(async () => {
     if (recognition.listening) {
       recognition.stop()
@@ -208,8 +286,21 @@ export default function App() {
     const transcript = await listenAs('composer', 10_000)
     if (!transcript) return
 
-    handleAdd(parseTaskInput(transcript, new Date()))
-  }, [handleAdd, listenAs, permissions, recognition])
+    handleTranscript(transcript)
+  }, [handleTranscript, listenAs, permissions, recognition])
+
+  const confirmPending = useCallback(
+    (draft) => {
+      handleAdd(draft)
+      setPending(null)
+    },
+    [handleAdd],
+  )
+
+  const cancelPending = useCallback(() => {
+    setPending(null)
+    announce('Discarded.')
+  }, [announce])
 
   const listenForAnswer = useCallback(async () => {
     if (recognition.listening) {
@@ -228,11 +319,12 @@ export default function App() {
     const granted = await permissions.request()
     if (!granted) return
 
-    const pending = pendingVoice.current
+    const resume = pendingVoice.current
     pendingVoice.current = null
 
-    if (pending === 'composer') handleVoiceAdd()
-    else if (pending === 'reply') listenForAnswer()
+    if (resume === 'composer') handleVoiceAdd()
+    else if (resume === 'reply') listenForAnswer()
+    else if (resume === 'confirm') confirmListenRef.current?.()
   }, [handleVoiceAdd, listenForAnswer, permissions])
 
   /** Applies a reminder answer, spoken or clicked. */
@@ -294,11 +386,80 @@ export default function App() {
     [canAutoListen, listenAs],
   )
 
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
+
+  /** Applies an answer to the confirmation card, spoken or clicked. */
+  const answerPending = useCallback(
+    (result) => {
+      const current = pendingRef.current
+      if (!current) return
+
+      if (result.intent === 'confirm') confirmPending(current.draft)
+      else if (result.intent === 'cancel') cancelPending()
+      else if (result.intent === 'reschedule') {
+        // Re-ask with the new time: bumping the id restarts the read-back.
+        setPending({
+          ...current,
+          id: current.id + 1,
+          draft: { ...current.draft, dueAt: result.dueAt },
+        })
+      }
+    },
+    [cancelPending, confirmPending],
+  )
+
+  const listenForConfirm = useCallback(async () => {
+    if (recognition.listening) {
+      recognition.stop()
+      return
+    }
+
+    pendingVoice.current = 'confirm'
+    if (!permissions.ensure()) return
+
+    const transcript = await listenAs('confirm', REPLY_LISTEN_MS)
+    if (transcript) answerPending(parseConfirmReply(transcript, new Date()))
+  }, [answerPending, listenAs, permissions, recognition])
+
+  confirmListenRef.current = listenForConfirm
+
+  /**
+   * Read the proposed task back, then listen for the answer. Keyed on the
+   * pending id, so correcting the time asks again with the corrected time.
+   */
+  useEffect(() => {
+    if (!pending) return undefined
+
+    let cancelled = false
+
+    const ask = async () => {
+      const { title, dueAt } = pending.draft
+      const when = dueAt ? ` for ${formatDueChip(dueAt)}` : ''
+
+      await synthesis.speak(`Add "${title}"${when}? Say yes or no.`)
+      if (cancelled || !canAutoListen) return
+
+      const transcript = await listenAs('confirm', REPLY_LISTEN_MS)
+      if (cancelled || !transcript) return
+
+      answerPending(parseConfirmReply(transcript, new Date()))
+    }
+
+    ask()
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending?.id, pending?.draft.dueAt])
+
   const reminderRef = useRef(null)
 
   const reminder = useReminders({
     todos,
-    enabled: remindersOn,
+    // One card at a time: a reminder would talk over the confirmation.
+    enabled: remindersOn && !pending,
     speak: synthesis.speak,
     listen: listenForReply,
     notify: permissions.notify,
@@ -327,6 +488,7 @@ export default function App() {
     },
     onEscape: () => {
       if (recognition.listening) recognition.stop()
+      else if (pending) cancelPending()
       else if (reminder.prompt) reminder.dismiss()
       else if (undo) dismissUndo()
     },
@@ -361,26 +523,42 @@ export default function App() {
         micSupported={recognition.supported}
       />
 
-      <div className="overview">
-        <ProgressRing stats={stats} />
-        <NeedsAttention todos={urgentTodos} now={now} onComplete={handleComplete} />
-      </div>
+      <div className="columns">
+        <main className="column-main">
+          <TaskList
+            ref={searchRef}
+            todos={visibleTodos}
+            tab={tab}
+            counts={{ today: stats.today, upcoming: stats.upcoming, done: stats.done }}
+            query={query}
+            total={stats.total}
+            selectedDay={selectedDay}
+            onTabChange={(next) => {
+              // Picking a tab is a different question from picking a day.
+              setSelectedDay(null)
+              setTab(next)
+            }}
+            onQueryChange={setQuery}
+            onClearDay={() => setSelectedDay(null)}
+            onToggle={handleToggle}
+            onUpdate={handleUpdate}
+            onRemove={handleRemove}
+            onClearDone={handleClearDone}
+            onLoadDemo={handleLoadDemo}
+          />
+        </main>
 
-      <TaskList
-        ref={searchRef}
-        todos={visibleTodos}
-        tab={tab}
-        counts={{ today: stats.today, upcoming: stats.upcoming, done: stats.done }}
-        query={query}
-        total={stats.total}
-        onTabChange={setTab}
-        onQueryChange={setQuery}
-        onToggle={handleToggle}
-        onUpdate={handleUpdate}
-        onRemove={handleRemove}
-        onClearDone={handleClearDone}
-        onLoadDemo={handleLoadDemo}
-      />
+        <aside className="column-side" aria-label="Calendar, focus and progress">
+          <MiniCalendar
+            now={now}
+            dayIndex={dayIndex}
+            selectedDay={selectedDay}
+            onSelectDay={setSelectedDay}
+          />
+          <NeedsAttention todos={urgentTodos} now={now} onComplete={handleComplete} />
+          <ProgressRing stats={stats} />
+        </aside>
+      </div>
 
       <footer className="app-footer">
         <p>
@@ -398,6 +576,18 @@ export default function App() {
       <p className="sr-only" role="status" aria-live="polite">
         {announcement}
       </p>
+
+      {pending ? (
+        <ConfirmCard
+          draft={pending.draft}
+          heard={pending.heard}
+          listening={listenTarget === 'confirm'}
+          onChange={(draft) => setPending((current) => ({ ...current, draft }))}
+          onConfirm={() => confirmPending(pending.draft)}
+          onCancel={cancelPending}
+          onListen={listenForConfirm}
+        />
+      ) : null}
 
       {reminder.prompt ? (
         <ReminderCard

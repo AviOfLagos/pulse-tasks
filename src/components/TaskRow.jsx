@@ -7,9 +7,9 @@ import { formatDueChip, isDue, toDateTimeLocal } from '../utils/date.js'
  * One task: checkbox, title, due-time chip, priority dot.
  *
  * The row itself is focusable and carries `data-todo-id`, which is how the
- * global Space shortcut knows which task to complete. Edit mode is local state;
- * focus returns to the Edit button on save or cancel so keyboard users never
- * lose their place.
+ * global Space shortcut knows which task to complete. Edit mode is local state
+ * and opens from either the title or the pencil; Enter saves, Escape cancels,
+ * and focus returns to the Edit button so keyboard users never lose their place.
  */
 export default function TaskRow({ todo, index = 0, onToggle, onUpdate, onRemove }) {
   const [editing, setEditing] = useState(false)
@@ -89,9 +89,18 @@ export default function TaskRow({ todo, index = 0, onToggle, onUpdate, onRemove 
         />
 
         <div className="task-body">
-          <p className="task-title" data-testid="todo-title">
+          {/* The title is the edit affordance — the pencil is there for anyone
+              who expects a button, but clicking the words is what people try. */}
+          <button
+            type="button"
+            className="task-title"
+            data-testid="todo-title"
+            onClick={editing ? () => setEditing(false) : startEditing}
+            aria-expanded={editing}
+            title="Edit task"
+          >
             {todo.title}
-          </p>
+          </button>
           {todo.description ? <p className="task-notes">{todo.description}</p> : null}
         </div>
 

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import {
+  dayKeyOf,
+  filterByDay,
   filterTodos,
+  getDayIndex,
   getDueReminders,
   getStats,
   getUrgentTodos,
@@ -211,5 +214,38 @@ describe('getDueReminders', () => {
       result.map((item) => item.id),
       ['long-overdue', 'due-now'],
     )
+  })
+})
+
+describe('calendar helpers', () => {
+  const todos = [
+    todo({ id: 'today-1', dueAt: at(0, 9) }),
+    todo({ id: 'today-2', dueAt: at(0, 18) }),
+    todo({ id: 'overdue', dueAt: at(0, 8) }),
+    todo({ id: 'done-today', dueAt: at(0, 10), completed: true }),
+    todo({ id: 'tomorrow', dueAt: at(1, 9) }),
+    todo({ id: 'undated' }),
+  ]
+
+  it('keys a task by its local calendar day', () => {
+    assert.equal(dayKeyOf(todos[0]), '2026-09-28')
+    assert.equal(dayKeyOf(todos[5]), null)
+  })
+
+  it('counts tasks, completions and overdue work per day', () => {
+    const index = getDayIndex(todos, NOW)
+
+    assert.deepEqual(index.get('2026-09-28'), { total: 4, done: 1, overdue: 2 })
+    assert.deepEqual(index.get('2026-09-29'), { total: 1, done: 0, overdue: 0 })
+    assert.equal(index.has('2026-09-30'), false)
+  })
+
+  it('filters to one day, soonest first, and searches within it', () => {
+    assert.deepEqual(
+      filterByDay(todos, '2026-09-28').map((item) => item.id),
+      ['overdue', 'today-1', 'done-today', 'today-2'],
+    )
+    assert.equal(filterByDay(todos, null).length, 0)
+    assert.equal(filterByDay(todos, '2026-09-28', 'nothing').length, 0)
   })
 })

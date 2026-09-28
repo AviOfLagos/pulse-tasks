@@ -11,8 +11,13 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
 
 ### Voice
 
-- **Say a task.** Press the mic in the composer and speak. "Call mum tomorrow 5pm, urgent" becomes
-  a task titled *Call mum*, due tomorrow at 17:00, priority high. The parser understands times
+- **Say a task, then confirm it.** Press the mic and speak. "Call mum tomorrow 5pm, urgent" is
+  parsed into *Call mum*, due tomorrow at 17:00, priority high — and then **read back** rather than
+  created: *"Add 'Call mum' for tomorrow 5:00 PM? Say yes or no."* Answer "yes" / "add it" to
+  create it, "no" / "cancel" to discard, or "change time to 8pm" to correct it and be asked again.
+  Every field on the card is editable, and the buttons (**Add ✓ / Edit ✎ / Cancel ✕**) do the same
+  job when you would rather not talk. Dictation is a guess twice over — what was heard, then what
+  the parser made of it — so nothing reaches the list unconfirmed. The parser understands times
   (`5pm`, `5:30 pm`, `17:00`, `at 6`), days (`today`, `tonight`, `tomorrow`, `friday`, `next week`),
   relative offsets (`in 30 minutes`, `in 2 hours`, `in 3 days`), parts of the day (`morning`,
   `evening`, `midnight`) and urgency words (`urgent`, `asap`, `someday`). Typed input goes through
@@ -27,6 +32,10 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
   | "change it to 6pm" | due time moved, and it becomes askable again |
   | "add note bring the receipt" | appended to the task's notes |
 
+- **Edit by voice.** "Change water the plants to 7pm" reschedules; "edit buy milk to buy oat milk"
+  renames; a rename can carry a new time and priority too. The task is matched by title, loosely —
+  and if the match is not good enough, nothing happens, because acting on the wrong task is worse
+  than admitting the name was not caught.
 - **Always a fallback.** The same question appears as an on-screen card with **Yes, done** and
   **Snooze 15m** buttons. It stays up until answered, so the feature still works when speech is
   unsupported (Firefox), the mic is denied, or the reply was not understood.
@@ -48,8 +57,12 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
   Each has a live count. Search covers titles, notes and tags.
 - **Needs attention** — overdue tasks first, then anything due within seven days.
 - **Progress ring** — completion percentage with `progressbar` semantics.
-- **Every row** — checkbox, title, due-time chip, priority dot (red / amber / green). Inline edit
-  for title, due moment, priority and notes; Escape cancels and focus returns to the Edit button.
+- **Every row** — checkbox, title, due-time chip, priority dot (red / amber / green). Click the
+  title (or the ✎) to edit title, due date/time, priority and notes inline; Enter or **Save**
+  commits, Escape or **Cancel** discards, and focus returns to the Edit button.
+- **Month calendar** — days with tasks get a neon dot, days with overdue work get a red one, and
+  today keeps a green ring whichever month you browse. Click a day to filter the list to it
+  (*Showing: Tue 29*, with a ✕ to clear); new tasks then default to that day.
 - **Undo toast (5s)** after a delete or a completion, including completions made by voice.
 - **Keyboard**: <kbd>N</kbd> new task · <kbd>/</kbd> search · <kbd>Space</kbd> complete the focused
   row · <kbd>Esc</kbd> stop listening / dismiss.
@@ -64,7 +77,9 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
 | `--border` | `#1F2A26` | hairlines |
 | `--text` | `#E6E6E6` | body text |
 | `--muted` | `#9AA5A0` | secondary text, chips |
-| `--accent` | `#39FF88` | **only** the primary button, the active tab, the progress ring and focus rings |
+| `--accent` | `#39FF88` | **only** the primary button, the active tab, the progress ring, calendar dots and focus rings |
+
+Spacing runs on an 8px scale, cards use a 12px radius, and the base font is 16px.
 
 Priority uses its own traffic light (`#FF5A5A` / `#FFB020` / `#4FB477`) and never borrows the neon,
 so green always means "this is the live control" rather than decoration.
@@ -106,6 +121,8 @@ src/
     TaskComposer.jsx       big input + mic + Add, with a live parse preview
     MicButton.jsx          shared mic control with the listening pulse
     ProgressRing.jsx       completion ring and counts
+    MiniCalendar.jsx       month grid, task dots, day filter
+    ConfirmCard.jsx        read-back card for a dictated task
     NeedsAttention.jsx     overdue + this week, at a glance
     Tabs.jsx               Today / Upcoming / Done
     TaskList.jsx           tabs, search and the rows
@@ -126,8 +143,8 @@ src/
     demoTodos.js           the "Load demo data" set, positioned relative to now
   utils/
     date.js                calendar-day helpers + dueAt timestamp helpers
-    nlp.js                 natural-language parsing for tasks and replies
-    todoFilters.js         tabs, sorting, stats, urgent + reminder selectors
+    nlp.js                 parsing for tasks, replies, confirmations and edits
+    todoFilters.js         tabs, sorting, stats, calendar index, urgent + reminder selectors
 ```
 
 ## Data model
@@ -162,9 +179,13 @@ without crashing the UI.
   speak/listen cycle, then hands the parsed intent back to `App`, which owns every dispatch. That
   keeps a single place where tasks change, and it is why a voice completion gets the same undo
   toast as a clicked one.
-- **One microphone, two callers.** The composer and the reminder reply share a single recognition
-  session; `listenTarget` decides whose transcript is on screen, and starting a new session always
-  tears down the old one.
+- **One microphone, three callers.** The composer, the confirmation card and the reminder reply
+  share a single recognition session; `listenTarget` decides whose transcript is on screen, and
+  starting a new session always tears down the old one. Reminders pause while a confirmation is
+  open, so two cards never talk over each other.
+- **A picked day replaces the tab.** "Everything on Monday" is a different question from
+  "everything due today", so selecting a calendar day overrides the tab filter rather than
+  intersecting with it, and picking a tab clears the day.
 - **One prompt at a time.** A backlog of overdue tasks is worked through one question at a time
   rather than all at once, and `promptedAt` is persisted so a reload does not re-ask. The 30-second
   sweep is the floor, not the latency: the queue going from empty to non-empty sweeps immediately,
@@ -178,12 +199,12 @@ without crashing the UI.
 
 | File | Covers |
 | --- | --- |
-| `src/utils/nlp.test.js` | task parsing (times, days, offsets, priorities, preamble stripping) and reply parsing (yes/no/reschedule/note) |
+| `src/utils/nlp.test.js` | task parsing (times, days, offsets, priorities, preamble stripping), reply parsing (yes/no/reschedule/note), confirmations, edit commands and loose title matching |
 | `src/state/todoReducer.test.js` | tag normalisation, creation defaults, validation, every action incl. snooze/reschedule/notes, legacy `dueDate` upgrade |
 | `src/state/storage.test.js` | persistence round-trip, corrupted/legacy/invalid payloads, draft round-trip, throwing or missing `localStorage` |
 | `src/state/demoTodos.test.js` | demo data fills every tab, includes an overdue task, unique ids, idempotent re-loading |
 | `src/utils/date.test.js` | ISO validation (`2026-02-30` rejected), day maths, due labels, overdue rules |
-| `src/utils/todoFilters.test.js` | tab rules, search, sort modes (incl. non-mutation), stats, urgent window, reminder queue |
+| `src/utils/todoFilters.test.js` | tab rules, search, sort modes (incl. non-mutation), stats, urgent window, reminder queue, calendar day index |
 
 ## Possible next steps
 

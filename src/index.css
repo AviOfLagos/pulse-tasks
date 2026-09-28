@@ -28,10 +28,16 @@
 
   --radius-sm: 8px;
   --radius: 12px;
-  --radius-lg: 16px;
+  --radius-lg: 12px;
+
+  /* Everything spaces on multiples of 8. */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
 
   --gap: 16px;
-  --shell: 1080px;
+  --shell: 1120px;
 
   --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
@@ -62,7 +68,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -126,10 +132,24 @@ kbd {
   width: 100%;
   max-width: var(--shell);
   margin: 0 auto;
-  padding: 32px 20px 96px;
+  padding: var(--space-4) var(--space-3) 96px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-2);
+}
+
+/* Left: tabs + list. Right: calendar, needs attention, progress. */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: var(--gap);
+  align-items: start;
+}
+
+.column-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
 }
 
 .app-footer {
@@ -315,32 +335,16 @@ kbd {
   color: var(--text);
 }
 
-.overview {
-  display: grid;
-  /* minmax(0, …) on the flexible track: without it the track floors at the
-     card's min-content width, and one long un-wrapping chip pushes the whole
-     page into horizontal scroll on a phone. */
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
-  gap: var(--gap);
-  align-items: stretch;
-}
+
 
 /* ========================================================================== */
 /* Progress ring                                                              */
 /* ========================================================================== */
 
-/* The two overview cards are the same height; this keeps the ring centred in
-   whatever height "Needs attention" ends up needing. */
-.progress-card {
-  display: flex;
-  flex-direction: column;
-}
-
 .progress-body {
-  flex: 1;
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: var(--space-2);
 }
 
 .ring-wrap {
@@ -614,9 +618,23 @@ kbd {
   min-width: 0;
 }
 
+/* The title is a button, so it has to be talked back down into looking like
+   text — but it keeps a pointer, a hover tint and the standard focus ring. */
 .task-title {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-size: 15px;
+  text-align: left;
   overflow-wrap: break-word;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.task-title:hover {
+  color: #fff;
 }
 
 .task-notes {
@@ -1077,12 +1095,150 @@ kbd {
   flex-wrap: wrap;
 }
 
+
+/* ========================================================================== */
+/* Calendar                                                                   */
+/* ========================================================================== */
+
+.calendar-card {
+  padding-bottom: var(--space-2);
+}
+
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  margin-bottom: 12px;
+}
+
+.calendar-month {
+  margin-bottom: 0;
+  letter-spacing: 0.04em;
+}
+
+.calendar-nav {
+  display: flex;
+  gap: 2px;
+}
+
+.calendar-nav .icon-btn {
+  width: 26px;
+  height: 26px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.calendar-weekdays,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.calendar-weekdays {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.calendar-day {
+  position: relative;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.calendar-day:hover {
+  background: var(--card-raised);
+}
+
+.calendar-day.is-outside {
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+/* Today keeps its ring in every month you browse to. */
+.calendar-day.is-today {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.calendar-day.is-selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.calendar-dot {
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.calendar-dot.is-overdue {
+  background: var(--priority-high);
+}
+
+.calendar-dot.is-done {
+  background: var(--border-strong);
+}
+
+/* ========================================================================== */
+/* Day filter chip                                                            */
+/* ========================================================================== */
+
+.day-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 10px 0 2px;
+  font-size: 13px;
+}
+
+.day-filter-label {
+  color: var(--muted);
+}
+
+/* ========================================================================== */
+/* Confirmation card                                                          */
+/* ========================================================================== */
+
+.confirm-card .reminder-question {
+  margin-bottom: 4px;
+  font-size: 17px;
+}
+
+.confirm-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+
 /* ========================================================================== */
 /* Responsive                                                                 */
 /* ========================================================================== */
 
-@media (max-width: 860px) {
-  .overview {
+/* The right column stacks under the list. minmax(0, …) matters: without it a
+   track floors at its content's min-content width and one un-wrapping chip
+   pushes the whole page into horizontal scroll. */
+@media (max-width: 900px) {
+  .columns {
     grid-template-columns: minmax(0, 1fr);
   }
 }
