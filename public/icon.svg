@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Pulse Tasks">
+  <rect width="512" height="512" rx="96" fill="#0B0F0E"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#1F2A26" stroke-width="28"/>
+  <path d="M256 106a150 150 0 0 1 106 256" fill="none" stroke="#39FF88" stroke-width="28" stroke-linecap="round"/>
+  <path d="M196 258l44 44 84-96" fill="none" stroke="#39FF88" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

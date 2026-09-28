@@ -4,19 +4,25 @@
  *
  * State shape: an array of todos. Every todo looks like:
  *   {
- *     id: string,            // stable, used as the React key
- *     title: string,         // required, trimmed
- *     description: string,   // optional notes, '' when empty
+ *     id: string,             // stable, used as the React key
+ *     title: string,          // required, trimmed
+ *     description: string,    // notes, '' when empty — voice notes append here
  *     priority: 'low' | 'medium' | 'high',
- *     dueDate: string | null, // 'YYYY-MM-DD' in local time
- *     tags: string[],        // de-duplicated, max MAX_TAGS
+ *     dueAt: string | null,   // ISO timestamp: a moment, not a day, because
+ *                             // reminders fire on it
+ *     tags: string[],         // de-duplicated, max MAX_TAGS
  *     completed: boolean,
- *     createdAt: string,     // ISO timestamp, used for sorting
+ *     createdAt: string,      // ISO timestamp, used for sorting
+ *     promptedAt: string|null // when the due reminder last fired, so the app
+ *                             // never nags twice for the same moment
  *   }
+ *
+ * Legacy `dueDate` ('YYYY-MM-DD') values written by earlier versions are read
+ * and upgraded to `dueAt` on load — see `createTodo`.
  */
 
-import { DEFAULT_PRIORITY, MAX_TAGS, PRIORITIES } from '../constants.js'
-import { isISODateString } from '../utils/date.js'
+import { DEFAULT_DUE_HOUR, DEFAULT_PRIORITY, MAX_TAGS, PRIORITIES } from '../constants.js'
+import { addMinutes, isDueAtString, toDueAt } from '../utils/date.js'
 
 let idCounter = 0
 
@@ -34,9 +40,7 @@ function createId() {
  * clean list of tags: trimmed, non-empty, case-insensitively unique, capped.
  */
 export function normalizeTags(tags) {
-  const list = Array.isArray(tags)
-    ? tags
-    : String(tags ?? '').split(',')
+  const list = Array.isArray(tags) ? tags : String(tags ?? '').split(',')
 
   const seen = new Set()
   const result = []
@@ -67,13 +71,15 @@ export function createTodo(input = {}) {
     title,
     description: String(input.description ?? '').trim(),
     priority: PRIORITIES.includes(input.priority) ? input.priority : DEFAULT_PRIORITY,
-    dueDate: isISODateString(input.dueDate) ? input.dueDate : null,
+    // `dueDate` is the legacy field; it upgrades to a timestamp at 09:00 local.
+    dueAt: toDueAt(input.dueAt ?? input.dueDate ?? null, DEFAULT_DUE_HOUR),
     tags: normalizeTags(input.tags),
     completed: Boolean(input.completed),
     createdAt:
       typeof input.createdAt === 'string' && input.createdAt
         ? input.createdAt
         : new Date().toISOString(),
+    promptedAt: isDueAtString(input.promptedAt) ? input.promptedAt : null,
   }
 }
 
@@ -97,27 +103,36 @@ function mergeTodo(todo, changes = {}) {
     ...todo,
     title,
     description:
-      changes.description === undefined
-        ? todo.description
-        : String(changes.description).trim(),
+      changes.description === undefined ? todo.description : String(changes.description).trim(),
     priority: PRIORITIES.includes(changes.priority) ? changes.priority : todo.priority,
-    dueDate:
-      changes.dueDate === undefined
-        ? todo.dueDate
-        : isISODateString(changes.dueDate)
-          ? changes.dueDate
-          : null,
+    dueAt: changes.dueAt === undefined ? todo.dueAt : toDueAt(changes.dueAt, DEFAULT_DUE_HOUR),
     tags: changes.tags === undefined ? todo.tags : normalizeTags(changes.tags),
-    completed:
-      changes.completed === undefined ? todo.completed : Boolean(changes.completed),
+    completed: changes.completed === undefined ? todo.completed : Boolean(changes.completed),
+    // Moving the due date makes the task promptable again.
+    promptedAt: changes.dueAt === undefined ? todo.promptedAt : null,
+  }
+}
+
+/** Appends a line to the notes, keeping existing text. */
+function appendNote(todo, note) {
+  const text = String(note ?? '').trim()
+  if (!text) return todo
+
+  return {
+    ...todo,
+    description: todo.description ? `${todo.description}\n${text}` : text,
   }
 }
 
 /**
  * Pure reducer.
- * Actions: add | update | toggle | toggle-all | remove | clear-completed | replace
+ * Actions:
+ *   add | update | toggle | toggle-all | remove | clear-completed | replace
+ *   complete | snooze | reschedule | append-note | mark-prompted
  */
 export function todosReducer(todos, action) {
+  const map = (id, change) => todos.map((todo) => (todo.id === id ? change(todo) : todo))
+
   switch (action?.type) {
     case 'add': {
       const title = String(action.payload?.title ?? '').trim()
@@ -129,17 +144,51 @@ export function todosReducer(todos, action) {
 
     case 'update': {
       const { id, changes } = action.payload ?? {}
-      return todos.map((todo) => (todo.id === id ? mergeTodo(todo, changes) : todo))
+      return map(id, (todo) => mergeTodo(todo, changes))
     }
 
     case 'toggle':
-      return todos.map((todo) =>
-        todo.id === action.payload?.id ? { ...todo, completed: !todo.completed } : todo,
-      )
+      return map(action.payload?.id, (todo) => ({ ...todo, completed: !todo.completed }))
+
+    case 'complete':
+      return map(action.payload?.id, (todo) => ({ ...todo, completed: true }))
 
     case 'toggle-all': {
       const completed = Boolean(action.payload?.completed)
       return todos.map((todo) => ({ ...todo, completed }))
+    }
+
+    case 'snooze': {
+      const { id, minutes = 15, from } = action.payload ?? {}
+      const reference = from ? new Date(from) : new Date()
+
+      // Snooze from *now* when the due moment is already in the past, so a
+      // task that sat overdue for an hour still comes back in `minutes`.
+      return map(id, (todo) => {
+        const base =
+          todo.dueAt && new Date(todo.dueAt).getTime() > reference.getTime()
+            ? todo.dueAt
+            : reference.toISOString()
+
+        return { ...todo, dueAt: addMinutes(base, minutes, reference), promptedAt: null }
+      })
+    }
+
+    case 'reschedule': {
+      const { id, dueAt } = action.payload ?? {}
+      const next = toDueAt(dueAt, DEFAULT_DUE_HOUR)
+      if (!next) return todos
+
+      return map(id, (todo) => ({ ...todo, dueAt: next, promptedAt: null }))
+    }
+
+    case 'append-note':
+      return map(action.payload?.id, (todo) => appendNote(todo, action.payload?.note))
+
+    case 'mark-prompted': {
+      const { id, at } = action.payload ?? {}
+      const stamp = isDueAtString(at) ? at : new Date().toISOString()
+      return map(id, (todo) => ({ ...todo, promptedAt: stamp }))
     }
 
     case 'remove':

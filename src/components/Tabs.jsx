@@ -1,11 +1,7 @@
 import { TABS } from '../constants.js'
 
-/**
- * The two app views: "To do" and "Done". Replaces the old filter chips,
- * sort dropdown and toolbar row with one obvious control. Each tab shows a
- * live count so you always know what is behind it.
- */
-export default function TodoTabs({ tab, onChange, counts }) {
+/** Today / Upcoming / Done. The active tab is the only green thing here. */
+export default function Tabs({ tab, counts, onChange }) {
   return (
     <div className="tabs" role="tablist" aria-label="Task views">
       {TABS.map((option) => {

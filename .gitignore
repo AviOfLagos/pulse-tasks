@@ -19,3 +19,6 @@ yarn-error.log*
 *.log
 .vercel
 .env*
+
+# Playwright MCP artefacts
+.playwright-mcp/

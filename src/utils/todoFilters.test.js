@@ -1,159 +1,215 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { filterTodos, getStats, getUrgentTodos, sortTodos } from './todoFilters.js'
+import {
+  filterTodos,
+  getDueReminders,
+  getStats,
+  getUrgentTodos,
+  matchesTab,
+  sortTodos,
+} from './todoFilters.js'
 
-const todo = (overrides = {}) => ({
-  id: 'id',
-  title: 'Task',
-  description: '',
-  priority: 'medium',
-  dueDate: null,
-  tags: [],
-  completed: false,
-  createdAt: '2026-01-01T00:00:00.000Z',
-  ...overrides,
+/** Monday 28 September 2026, 12:00 local. */
+const NOW = new Date(2026, 8, 28, 12, 0, 0, 0)
+
+const at = (dayOffset, hour = 12, minute = 0) =>
+  new Date(2026, 8, 28 + dayOffset, hour, minute, 0, 0).toISOString()
+
+function todo(overrides = {}) {
+  return {
+    id: overrides.id ?? Math.random().toString(36).slice(2),
+    title: 'Task',
+    description: '',
+    priority: 'medium',
+    dueAt: null,
+    tags: [],
+    completed: false,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    promptedAt: null,
+    ...overrides,
+  }
+}
+
+describe('matchesTab', () => {
+  it('puts undated, overdue and today tasks in Today', () => {
+    assert.equal(matchesTab(todo({ dueAt: null }), 'today', NOW), true)
+    assert.equal(matchesTab(todo({ dueAt: at(0, 9) }), 'today', NOW), true)
+    assert.equal(matchesTab(todo({ dueAt: at(-3) }), 'today', NOW), true)
+    assert.equal(matchesTab(todo({ dueAt: at(1) }), 'today', NOW), false)
+  })
+
+  it('puts later days in Upcoming, undated tasks never', () => {
+    assert.equal(matchesTab(todo({ dueAt: at(1) }), 'upcoming', NOW), true)
+    assert.equal(matchesTab(todo({ dueAt: null }), 'upcoming', NOW), false)
+    assert.equal(matchesTab(todo({ dueAt: at(0, 23) }), 'upcoming', NOW), false)
+  })
+
+  it('only completed tasks are Done, wherever they are dated', () => {
+    assert.equal(matchesTab(todo({ completed: true, dueAt: at(5) }), 'done', NOW), true)
+    assert.equal(matchesTab(todo({ completed: true }), 'today', NOW), false)
+    assert.equal(matchesTab(todo({ completed: true }), 'upcoming', NOW), false)
+  })
 })
 
 describe('filterTodos', () => {
   const todos = [
-    todo({ id: '1', title: 'Walk the dog', tags: ['home'], createdAt: '2026-01-03T00:00:00.000Z' }),
-    todo({ id: '2', title: 'Ship the app', completed: true, createdAt: '2026-01-02T00:00:00.000Z' }),
-    todo({
-      id: '3',
-      title: 'Review PR',
-      description: 'Check the dark mode styles',
-      priority: 'high',
-      createdAt: '2026-01-01T00:00:00.000Z',
-    }),
+    todo({ id: 'a', title: 'Write report', dueAt: at(0, 17) }),
+    todo({ id: 'b', title: 'Book flights', dueAt: at(2) }),
+    todo({ id: 'c', title: 'Old chore', completed: true, tags: ['home'] }),
+    todo({ id: 'd', title: 'Loose end' }),
   ]
 
-  it('returns everything for "all"', () => {
-    assert.equal(filterTodos(todos, 'all').length, 3)
-  })
-
-  it('separates active from completed', () => {
+  it('filters by tab', () => {
     assert.deepEqual(
-      filterTodos(todos, 'active').map((item) => item.id),
-      ['1', '3'],
+      filterTodos(todos, 'today', '', NOW).map((item) => item.id),
+      ['a', 'd'],
     )
     assert.deepEqual(
-      filterTodos(todos, 'completed').map((item) => item.id),
-      ['2'],
+      filterTodos(todos, 'upcoming', '', NOW).map((item) => item.id),
+      ['b'],
+    )
+    assert.deepEqual(
+      filterTodos(todos, 'done', '', NOW).map((item) => item.id),
+      ['c'],
     )
   })
 
-  it('searches titles, descriptions and tags, case-insensitively', () => {
-    assert.deepEqual(filterTodos(todos, 'all', 'SHIP').map((item) => item.id), ['2'])
-    assert.deepEqual(filterTodos(todos, 'all', 'dark mode').map((item) => item.id), ['3'])
-    assert.deepEqual(filterTodos(todos, 'all', 'home').map((item) => item.id), ['1'])
-    assert.deepEqual(filterTodos(todos, 'all', 'nothing here'), [])
+  it('searches title, notes and tags', () => {
+    assert.deepEqual(
+      filterTodos(todos, 'all', 'flights', NOW).map((item) => item.id),
+      ['b'],
+    )
+    assert.deepEqual(
+      filterTodos(todos, 'all', 'home', NOW).map((item) => item.id),
+      ['c'],
+    )
+    assert.equal(filterTodos(todos, 'all', 'nothing here', NOW).length, 0)
   })
 
-  it('ignores a blank search', () => {
-    assert.equal(filterTodos(todos, 'all', '   ').length, 3)
-  })
-
-  it('combines the status filter with the search', () => {
-    assert.deepEqual(filterTodos(todos, 'completed', 'dog'), [])
-    assert.deepEqual(filterTodos(todos, 'active', 'dog').map((item) => item.id), ['1'])
+  it('ignores surrounding whitespace and case in the query', () => {
+    assert.equal(filterTodos(todos, 'all', '  REPORT ', NOW).length, 1)
+    assert.equal(filterTodos(todos, 'all', '   ', NOW).length, todos.length)
   })
 })
 
 describe('sortTodos', () => {
-  const todos = [
-    todo({ id: 'low', priority: 'low', dueDate: '2026-09-30', createdAt: '2026-01-03T00:00:00.000Z' }),
-    todo({ id: 'high-late', priority: 'high', dueDate: '2026-12-01', createdAt: '2026-01-02T00:00:00.000Z' }),
-    todo({ id: 'high-soon', priority: 'high', dueDate: '2026-09-29', createdAt: '2026-01-01T00:00:00.000Z' }),
-    todo({ id: 'no-date', priority: 'medium', dueDate: null, createdAt: '2026-01-04T00:00:00.000Z' }),
-  ]
+  const late = todo({ id: 'late', createdAt: '2026-09-20T00:00:00.000Z', dueAt: at(3) })
+  const soon = todo({ id: 'soon', createdAt: '2026-09-10T00:00:00.000Z', dueAt: at(1) })
+  const undated = todo({ id: 'undated', createdAt: '2026-09-25T00:00:00.000Z' })
+  const urgent = todo({ id: 'urgent', priority: 'high', createdAt: '2026-09-05T00:00:00.000Z' })
 
-  it('sorts newest first by default and does not mutate the input', () => {
-    const input = [...todos]
+  it('sorts by newest created by default', () => {
     assert.deepEqual(
-      sortTodos(input, 'created').map((item) => item.id),
-      ['no-date', 'low', 'high-late', 'high-soon'],
-    )
-    assert.deepEqual(input.map((item) => item.id), todos.map((item) => item.id))
-  })
-
-  it('sorts by due date with undated todos last', () => {
-    assert.deepEqual(
-      sortTodos(todos, 'due').map((item) => item.id),
-      ['high-soon', 'low', 'high-late', 'no-date'],
+      sortTodos([urgent, soon, undated, late]).map((item) => item.id),
+      ['undated', 'late', 'soon', 'urgent'],
     )
   })
 
-  it('sorts by priority, breaking ties with the due date', () => {
+  it('sorts by due moment, undated last', () => {
     assert.deepEqual(
-      sortTodos(todos, 'priority').map((item) => item.id),
-      ['high-soon', 'high-late', 'no-date', 'low'],
+      sortTodos([late, undated, soon], 'due').map((item) => item.id),
+      ['soon', 'late', 'undated'],
     )
   })
 
-  it('returns a new array for an unknown sort mode', () => {
-    const result = sortTodos(todos, 'nonsense')
+  it('sorts by priority first, then by due moment', () => {
+    assert.deepEqual(
+      sortTodos([late, urgent, soon], 'priority').map((item) => item.id),
+      ['urgent', 'soon', 'late'],
+    )
+  })
 
-    assert.notEqual(result, todos)
-    assert.equal(result.length, todos.length)
+  it('does not mutate the input', () => {
+    const input = [late, soon]
+    sortTodos(input, 'due')
+    assert.deepEqual(
+      input.map((item) => item.id),
+      ['late', 'soon'],
+    )
   })
 })
 
 describe('getStats', () => {
-  it('counts total, active and completed', () => {
-    const todos = [
-      todo({ completed: true }),
-      todo({ completed: false }),
-      todo({ completed: true }),
-    ]
+  it('counts totals, tabs and the completed percentage', () => {
+    const stats = getStats(
+      [
+        todo({ dueAt: at(0, 15) }),
+        todo({ dueAt: at(-1) }),
+        todo({ dueAt: at(4) }),
+        todo({ completed: true }),
+      ],
+      NOW,
+    )
 
-    assert.deepEqual(getStats(todos), { total: 3, active: 1, completed: 2 })
+    assert.deepEqual(stats, {
+      total: 4,
+      active: 3,
+      completed: 1,
+      today: 2,
+      upcoming: 1,
+      done: 1,
+      percent: 25,
+    })
   })
 
-  it('handles an empty list', () => {
-    assert.deepEqual(getStats([]), { total: 0, active: 0, completed: 0 })
+  it('is 0% on an empty list', () => {
+    assert.equal(getStats([], NOW).percent, 0)
   })
 })
 
 describe('getUrgentTodos', () => {
-  const reference = new Date(2026, 8, 28, 12) // Mon 28 Sep 2026, local noon
-  const dayOffset = (offset) => {
-    const date = new Date(2026, 8, 28 + offset)
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${date.getFullYear()}-${month}-${day}`
-  }
+  it('includes overdue and this-week tasks, soonest first', () => {
+    const result = getUrgentTodos(
+      [
+        todo({ id: 'next-month', dueAt: at(30) }),
+        todo({ id: 'in-two-days', dueAt: at(2) }),
+        todo({ id: 'overdue', dueAt: at(-2) }),
+        todo({ id: 'done', dueAt: at(1), completed: true }),
+        todo({ id: 'undated' }),
+      ],
+      NOW,
+    )
 
-  const todos = [
-    todo({ id: 'today', dueDate: dayOffset(0) }),
-    todo({ id: 'tomorrow-high', dueDate: dayOffset(1), priority: 'high' }),
-    todo({ id: 'tomorrow-low', dueDate: dayOffset(1), priority: 'low' }),
-    todo({ id: 'next-week', dueDate: dayOffset(7) }),
-    todo({ id: 'too-far', dueDate: dayOffset(8) }),
-    todo({ id: 'expired', dueDate: dayOffset(-1) }),
-    todo({ id: 'no-due' }),
-    todo({ id: 'done', dueDate: dayOffset(0), completed: true }),
-  ]
-
-  it('keeps active tasks due within the window, nearest first', () => {
-    const ids = getUrgentTodos(todos, reference).map((t) => t.id)
-    assert.deepEqual(ids, ['today', 'tomorrow-high', 'tomorrow-low', 'next-week'])
+    assert.deepEqual(
+      result.map((item) => item.id),
+      ['overdue', 'in-two-days'],
+    )
   })
 
-  it('drops expired, completed, due-less and out-of-window tasks', () => {
-    const ids = getUrgentTodos(todos, reference).map((t) => t.id)
-    assert.equal(ids.includes('expired'), false)
-    assert.equal(ids.includes('done'), false)
-    assert.equal(ids.includes('no-due'), false)
-    assert.equal(ids.includes('too-far'), false)
+  it('breaks ties on priority', () => {
+    const result = getUrgentTodos(
+      [
+        todo({ id: 'low', dueAt: at(1), priority: 'low' }),
+        todo({ id: 'high', dueAt: at(1), priority: 'high' }),
+      ],
+      NOW,
+    )
+
+    assert.deepEqual(
+      result.map((item) => item.id),
+      ['high', 'low'],
+    )
   })
+})
 
-  it('an expired task disappears as time moves past its due date', () => {
-    const before = getUrgentTodos(todos, reference).map((t) => t.id)
-    assert.equal(before.includes('today'), true)
+describe('getDueReminders', () => {
+  it('returns unfinished, un-prompted tasks whose moment has passed', () => {
+    const result = getDueReminders(
+      [
+        todo({ id: 'later', dueAt: at(0, 18) }),
+        todo({ id: 'due-now', dueAt: at(0, 12) }),
+        todo({ id: 'long-overdue', dueAt: at(-1) }),
+        todo({ id: 'asked', dueAt: at(-1), promptedAt: at(-1) }),
+        todo({ id: 'finished', dueAt: at(-1), completed: true }),
+        todo({ id: 'undated' }),
+      ],
+      NOW,
+    )
 
-    const nextDay = new Date(2026, 8, 29, 0, 30)
-    const after = getUrgentTodos(todos, nextDay).map((t) => t.id)
-    assert.equal(after.includes('today'), false)
+    assert.deepEqual(
+      result.map((item) => item.id),
+      ['long-overdue', 'due-now'],
+    )
   })
 })

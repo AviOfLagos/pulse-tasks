@@ -1,7 +1,7 @@
 /**
- * Shared constants for the todo app.
- * Anything that both the pure logic layer and the UI need lives here,
- * so there is a single source of truth for ids, labels and limits.
+ * Shared constants for Pulse Tasks.
+ * Anything both the pure logic layer and the UI need lives here, so there is a
+ * single source of truth for ids, labels, limits and timings.
  */
 
 /** localStorage key. Bump the suffix when the stored shape changes. */
@@ -25,19 +25,35 @@ export const PRIORITY_RANK = {
 
 export const MAX_TAGS = 3
 
-/** Main navigation tabs: what is left to do vs. what is done. */
+/** The three views. `today` also collects anything overdue or undated. */
 export const TABS = [
-  { id: 'active', label: 'To do' },
-  { id: 'completed', label: 'Done' },
+  { id: 'today', label: 'Today' },
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'done', label: 'Done' },
 ]
 
 /** How far ahead (in days) the "Needs attention" panel looks. */
 export const URGENT_WINDOW_DAYS = 7
 
-/** How often the app re-checks due dates (ms) to auto-expire urgent items. */
+/** How often the app re-checks due dates (ms) — also the reminder sweep. */
 export const CLOCK_TICK_MS = 30_000
 
 export const DEFAULT_PRIORITY = 'medium'
 
-/** How long the undo toast stays on screen (ms). */
-export const UNDO_TIMEOUT = 8000
+/** How long the undo toast stays on screen (ms). Spec: 5s. */
+export const UNDO_TIMEOUT = 5000
+
+/** Minutes added to dueAt when a reminder is snoozed. */
+export const SNOOZE_MINUTES = 15
+
+/** Hour (local) a bare date like "tomorrow" defaults to when no time is said. */
+export const DEFAULT_DUE_HOUR = 9
+
+/** How long we listen for a spoken reply before falling back to the card (ms). */
+export const REPLY_LISTEN_MS = 12_000
+
+/** localStorage key for "the user has seen the voice explainer". */
+export const VOICE_CONSENT_KEY = 'todo-webapp:voice-consent'
+
+/** localStorage key for the half-written task still sitting in the composer. */
+export const DRAFT_KEY = 'todo-webapp:draft'

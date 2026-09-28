@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 
-import { STORAGE_KEY } from '../constants.js'
-import { loadTodos, saveTodos } from './storage.js'
+import { DRAFT_KEY, STORAGE_KEY } from '../constants.js'
+import { loadDraft, loadTodos, saveDraft, saveTodos } from './storage.js'
 
 /**
  * storage.js reads `localStorage` at call time, so stubbing the global before
@@ -46,15 +46,27 @@ describe('storage', () => {
         title: 'Persist me',
         description: 'with notes',
         priority: 'high',
-        dueDate: '2026-10-01',
+        dueAt: new Date(2026, 9, 1, 17, 0, 0, 0).toISOString(),
         tags: ['work'],
         completed: false,
         createdAt: '2026-01-01T00:00:00.000Z',
+        promptedAt: null,
       },
     ]
 
     saveTodos(todos)
     assert.deepEqual(loadTodos(), todos)
+  })
+
+  it('upgrades a legacy day-only dueDate to a timestamp', () => {
+    backing.set(
+      STORAGE_KEY,
+      JSON.stringify([{ id: 'old', title: 'From v1', dueDate: '2026-10-01' }]),
+    )
+
+    const [loaded] = loadTodos()
+    assert.equal(loaded.dueAt, new Date(2026, 9, 1, 9, 0, 0, 0).toISOString())
+    assert.equal(loaded.promptedAt, null)
   })
 
   it('drops unusable entries and repairs the rest', () => {
@@ -101,5 +113,31 @@ describe('storage', () => {
 
     assert.deepEqual(loadTodos(), [])
     assert.doesNotThrow(() => saveTodos([{ title: 'Anything' }]))
+  })
+})
+
+describe('draft storage', () => {
+  it('is empty when nothing was typed', () => {
+    assert.equal(loadDraft(), '')
+  })
+
+  it('round-trips the composer text', () => {
+    saveDraft('pay rent tomorrow 5pm')
+    assert.equal(loadDraft(), 'pay rent tomorrow 5pm')
+  })
+
+  it('clears the key when the input is emptied', () => {
+    saveDraft('something')
+    saveDraft('')
+
+    assert.equal(backing.has(DRAFT_KEY), false)
+    assert.equal(loadDraft(), '')
+  })
+
+  it('survives a missing localStorage', () => {
+    stubStorage(undefined)
+
+    assert.equal(loadDraft(), '')
+    assert.doesNotThrow(() => saveDraft('still fine'))
   })
 })

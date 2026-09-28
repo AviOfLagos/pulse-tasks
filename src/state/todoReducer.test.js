@@ -50,10 +50,12 @@ describe('createTodo', () => {
       title: 'Ship stage 1',
       description: 'with notes',
       priority: 'high',
-      dueDate: '2026-10-01',
+      // The legacy `dueDate` is upgraded to a 09:00 local timestamp.
+      dueAt: new Date(2026, 9, 1, 9, 0, 0, 0).toISOString(),
       tags: ['work', 'urgent'],
       completed: true,
       createdAt: '2026-01-01T10:00:00.000Z',
+      promptedAt: null,
     })
   })
 
@@ -61,7 +63,7 @@ describe('createTodo', () => {
     const todo = createTodo({ title: 'No extras' })
 
     assert.equal(todo.priority, 'medium')
-    assert.equal(todo.dueDate, null)
+    assert.equal(todo.dueAt, null)
     assert.deepEqual(todo.tags, [])
     assert.equal(todo.completed, false)
     assert.ok(todo.id)
@@ -73,10 +75,10 @@ describe('createTodo', () => {
   })
 
   it('drops invalid priorities and due dates', () => {
-    const todo = createTodo({ title: 'Bad input', priority: 'urgent', dueDate: '2026-02-30' })
+    const todo = createTodo({ title: 'Bad input', priority: 'urgent', dueAt: '2026-02-30' })
 
     assert.equal(todo.priority, 'medium')
-    assert.equal(todo.dueDate, null)
+    assert.equal(todo.dueAt, null)
   })
 })
 
@@ -195,5 +197,80 @@ describe('todosReducer', () => {
     const state = [base()]
     assert.equal(todosReducer(state, { type: 'nope' }), state)
     assert.equal(todosReducer(state, undefined), state)
+  })
+})
+
+describe('voice actions', () => {
+  const at = (h, m = 0) => new Date(2026, 8, 28, h, m, 0, 0)
+  const base = createTodo({ id: 'v1', title: 'Water plants', dueAt: at(17).toISOString() })
+
+  it('snooze pushes an upcoming due time by the given minutes', () => {
+    const [todo] = todosReducer([base], {
+      type: 'snooze',
+      payload: { id: 'v1', minutes: 15, from: at(12).toISOString() },
+    })
+
+    assert.equal(new Date(todo.dueAt).getTime(), at(17, 15).getTime())
+    assert.equal(todo.promptedAt, null)
+  })
+
+  it('snooze on an overdue task counts from now, not from the old due time', () => {
+    const overdue = { ...base, dueAt: at(9).toISOString(), promptedAt: at(9).toISOString() }
+    const [todo] = todosReducer([overdue], {
+      type: 'snooze',
+      payload: { id: 'v1', minutes: 15, from: at(12).toISOString() },
+    })
+
+    assert.equal(new Date(todo.dueAt).getTime(), at(12, 15).getTime())
+  })
+
+  it('reschedule replaces the due moment and clears the prompt flag', () => {
+    const prompted = { ...base, promptedAt: at(17).toISOString() }
+    const [todo] = todosReducer([prompted], {
+      type: 'reschedule',
+      payload: { id: 'v1', dueAt: at(18).toISOString() },
+    })
+
+    assert.equal(new Date(todo.dueAt).getTime(), at(18).getTime())
+    assert.equal(todo.promptedAt, null)
+  })
+
+  it('reschedule ignores an unparseable time', () => {
+    const todos = [base]
+    assert.equal(todosReducer(todos, { type: 'reschedule', payload: { id: 'v1', dueAt: 'soon' } }), todos)
+  })
+
+  it('append-note adds a line and keeps existing notes', () => {
+    const once = todosReducer([base], { type: 'append-note', payload: { id: 'v1', note: 'Use the rain water' } })
+    assert.equal(once[0].description, 'Use the rain water')
+
+    const twice = todosReducer(once, { type: 'append-note', payload: { id: 'v1', note: 'Back porch too' } })
+    assert.equal(twice[0].description, 'Use the rain water\nBack porch too')
+  })
+
+  it('append-note ignores empty text', () => {
+    assert.equal(todosReducer([base], { type: 'append-note', payload: { id: 'v1', note: '  ' } })[0], base)
+  })
+
+  it('complete always completes, never toggles back', () => {
+    const done = todosReducer([base], { type: 'complete', payload: { id: 'v1' } })
+    assert.equal(done[0].completed, true)
+    assert.equal(todosReducer(done, { type: 'complete', payload: { id: 'v1' } })[0].completed, true)
+  })
+
+  it('mark-prompted stamps the todo so it is not asked twice', () => {
+    const stamp = at(17).toISOString()
+    const [todo] = todosReducer([base], { type: 'mark-prompted', payload: { id: 'v1', at: stamp } })
+    assert.equal(todo.promptedAt, stamp)
+  })
+
+  it('editing the due date makes a task promptable again', () => {
+    const prompted = { ...base, promptedAt: at(17).toISOString() }
+    const [todo] = todosReducer([prompted], {
+      type: 'update',
+      payload: { id: 'v1', changes: { title: 'Water plants', dueAt: at(19).toISOString() } },
+    })
+
+    assert.equal(todo.promptedAt, null)
   })
 })
