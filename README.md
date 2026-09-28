@@ -93,6 +93,19 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
 
 Spacing runs on an 8px scale, cards use a 12px radius, and the base font is 16px.
 
+## Layout
+
+An app shell: a full-height tag navbar on the left, and to its right the top bar, the composer and
+a workspace of list + side rail. The workspace is the part that reflows.
+
+| Width | Columns |
+| --- | --- |
+| ≥ 1500px | **four** — navbar, list, calendar + progress, needs attention (the rail splits) |
+| 1180–1500px | three — navbar, list, rail |
+| 980–1180px | three, with a narrower navbar |
+| 760–980px | two — the navbar folds into a row of tag chips above the content |
+| < 760px | one — chips scroll horizontally, the rail stacks under the list |
+
 Priority uses its own traffic light (`#FF5A5A` / `#FFB020` / `#4FB477`) and never borrows the neon,
 so green always means "this is the live control" rather than decoration.
 
@@ -129,7 +142,8 @@ src/
   index.css                design tokens + components (responsive)
   constants.js             priorities, tabs, timings, storage keys
   components/
-    AppHeader.jsx          wordmark, clock, reminder switch
+    Sidebar.jsx            left navbar: wordmark + tag tree
+    AppHeader.jsx          top bar: clock + reminder switch
     TaskComposer.jsx       big input + mic + Add, with a live parse preview
     MicButton.jsx          shared mic control with the listening pulse
     ProgressRing.jsx       completion ring and counts

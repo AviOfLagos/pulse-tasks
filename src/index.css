@@ -128,35 +128,80 @@ kbd {
 /* Shell                                                                      */
 /* ========================================================================== */
 
+/* ------------------------------------------------------------------ *
+ * App shell
+ *
+ * A full-height tag navbar, and to its right a column holding the top
+ * bar, the composer and the workspace. The workspace is the part that
+ * reflows: one column on a phone, list + rail on a laptop, and on a
+ * wide screen the rail splits so the page reads as four columns rather
+ * than one very long rail.
+ * ------------------------------------------------------------------ */
+
 .app {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) 12px var(--space-2);
+  border-right: 1px solid var(--border);
+  background: var(--card);
+}
+
+.sidebar-brand {
+  padding: 0 8px;
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  padding: 0 8px;
+}
+
+.sidebar-foot .btn {
   width: 100%;
-  max-width: var(--shell);
-  margin: 0 auto;
-  padding: var(--space-4) var(--space-3) 96px;
+}
+
+.content {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) 80px;
 }
 
-/* Left: tag tree. Middle: tabs + list. Right: calendar, attention, progress. */
-.columns {
+.workspace {
   display: grid;
-  grid-template-columns: minmax(180px, 210px) minmax(0, 1fr) minmax(280px, 320px);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   gap: var(--gap);
   align-items: start;
 }
 
-.column-side {
-  display: flex;
-  flex-direction: column;
+.list-col {
+  min-width: 0;
+}
+
+.side-col {
+  display: grid;
   gap: var(--gap);
+  align-items: start;
 }
 
 .app-footer {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding-top: 4px;
+  margin-top: auto;
+  padding-top: var(--space-1);
   color: var(--muted);
   font-size: 13px;
 }
@@ -172,16 +217,29 @@ kbd {
 
 .app-header {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: var(--gap);
   flex-wrap: wrap;
 }
 
+.header-clock {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.header-time {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 .brand-name {
-  font-size: 26px;
+  font-size: 19px;
   font-weight: 650;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .brand-sub {
@@ -421,11 +479,15 @@ kbd {
   gap: 2px;
 }
 
+ /* Two lines: title, then its chip. A one-line row in a 300px rail
+    ellipsised titles down to "W…", which is worse than being taller. */
 .attention-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
+  column-gap: 10px;
+  row-gap: 4px;
+  padding: 9px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -434,12 +496,21 @@ kbd {
 }
 
 .attention-title {
-  flex: 1;
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 14px;
+  overflow-wrap: break-word;
+}
+
+.attention-item .chip-time {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.attention-item .tick-btn,
+.attention-item .priority-dot {
+  grid-row: 1;
 }
 
 .tick-btn {
@@ -1236,7 +1307,7 @@ kbd {
 /* ========================================================================== */
 
 .tag-card {
-  padding: var(--space-2) 12px;
+  min-width: 0;
 }
 
 .tag-list,
@@ -1433,22 +1504,83 @@ kbd {
 /* Responsive                                                                 */
 /* ========================================================================== */
 
-/* The right column stacks under the list. minmax(0, …) matters: without it a
-   track floors at its content's min-content width and one un-wrapping chip
-   pushes the whole page into horizontal scroll. */
+/* Wide: the side rail splits, so the page reads as four columns.
+   Placement is explicit rather than left to auto-flow — "needs attention" is
+   much taller than the calendar, and flowing by row left a hole where the
+   progress card should have been. */
+@media (min-width: 1500px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(560px, 0.95fr);
+  }
+
+  .side-col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: min-content;
+    align-items: start;
+  }
+
+  .side-col > .calendar-card {
+    grid-area: 1 / 1;
+  }
+
+  .side-col > .progress-card {
+    grid-area: 2 / 1;
+  }
+
+  .side-col > .attention-card {
+    grid-area: 1 / 2 / span 2 / 3;
+  }
+}
+
+/* Laptop: two columns in the workspace, three with the navbar. */
 @media (max-width: 1180px) {
-  .columns {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  .app {
+    grid-template-columns: 208px minmax(0, 1fr);
   }
 
-  /* The tag rail goes full width above the list rather than disappearing, and
-     the tree flattens into a row of chips. Children stay visible — hiding them
-     here would put a nested tag out of reach at this width — and sit directly
-     after their parent, which is what keeps a bare "garden" readable. */
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+  }
+}
+
+/* Tablet: the navbar folds into a row of chips above the content. */
+@media (max-width: 980px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-brand {
+    flex: none;
+    padding: 0;
+  }
+
+  .sidebar-brand .brand-sub {
+    display: none;
+  }
+
   .tag-card {
-    grid-column: 1 / -1;
+    flex: 1;
+    min-width: 0;
   }
 
+  .tag-card .card-title {
+    display: none;
+  }
+
+  /* The tree flattens into chips. Children stay visible — hiding them here
+     would put a nested tag out of reach at this width — and sit directly
+     after their parent, which is what keeps a bare "garden" readable. */
   .tag-list,
   .tag-children {
     display: flex;
@@ -1457,27 +1589,72 @@ kbd {
     gap: 4px;
   }
 
+  .tag-card .tag-list > li,
+  .tag-card .tag-children > li {
+    display: contents;
+  }
+
   .tag-row {
     padding-left: 0;
     border: 1px solid var(--border);
     border-radius: 999px;
   }
 
-  .tag-card .tag-list > li,
-  .tag-card .tag-children > li {
-    display: contents;
+  .sidebar-foot {
+    margin-top: 0;
+    padding: 0;
   }
 }
 
-@media (max-width: 900px) {
-  .columns {
+/* Phone: everything in one column. */
+@media (max-width: 760px) {
+  .workspace {
     grid-template-columns: minmax(0, 1fr);
   }
-}
 
-@media (max-width: 620px) {
-  .app {
-    padding: 22px 16px 88px;
+  .content {
+    padding: var(--space-2) var(--space-2) 80px;
+  }
+
+  /* Two rows on a phone: name + demo button, then one scrolling row of tag
+     chips. Wrapping the chips instead cost three rows before the input. */
+  .sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    padding: var(--space-2);
+  }
+
+  .sidebar-brand {
+    flex: 1 1 auto;
+  }
+
+  .sidebar-foot {
+    flex: none;
+    order: 1;
+    margin-top: 0;
+  }
+
+  .sidebar-foot .btn {
+    width: auto;
+  }
+
+  .tag-card {
+    flex: 1 1 100%;
+    order: 2;
+  }
+
+  .tag-card .tag-list {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    /* The half-visible chip at the edge is the affordance; a persistent
+       scrollbar under it is just noise. */
+    scrollbar-width: none;
+  }
+
+  .tag-card .tag-list::-webkit-scrollbar {
+    display: none;
   }
 
   .composer-input {
@@ -1509,7 +1686,7 @@ kbd {
     padding-left: 4px;
   }
 
-  /* Narrow screens: the due chip drops onto its own line under the title. */
+  /* The due chip drops onto its own line under the title. */
   .task-main {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
     row-gap: 6px;
