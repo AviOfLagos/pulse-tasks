@@ -115,9 +115,9 @@ hard-coded or tucked into a corner:
 | **If missing** | the keyword table in `categorise.js` does the job, and nothing else changes |
 
 `LanguageModel.availability()` returns `unavailable` on plenty of otherwise capable machines,
-usually because the feature is still behind a flag. To turn it on: `chrome://flags` →
-**Prompt API for Gemini Nano** → *Enabled*, restart, then `chrome://on-device-internals` to watch
-the model download. The app shows an **Enable on-device AI** button when the browser reports the
+usually because the feature is still behind a flag. To turn it on: `chrome://flags/#prompt-api` →
+*Enabled* (on Chrome 140 and older the flag is `#prompt-api-for-gemini-nano`), relaunch, then
+`chrome://on-device-internals` to watch the model download. The app shows an **Enable on-device AI** button when the browser reports the
 model as downloadable, because the first download is several gigabytes and needs a deliberate
 click rather than a page load.
 

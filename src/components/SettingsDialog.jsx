@@ -243,10 +243,11 @@ export default function SettingsDialog({
             {ai.status === 'unavailable' ? (
               <ol className="settings-steps">
                 <li>
-                  Open <code>chrome://flags/#prompt-api-for-gemini-nano</code> and set it to
-                  <strong> Enabled</strong>.
+                  Open <code>chrome://flags/#prompt-api</code> and set it to{' '}
+                  <strong>Enabled</strong>. On Chrome 140 and older the flag is called{' '}
+                  <code>#prompt-api-for-gemini-nano</code>.
                 </li>
-                <li>Restart Chrome.</li>
+                <li>Relaunch Chrome.</li>
                 <li>
                   Open <code>chrome://on-device-internals</code> to watch the model download.
                 </li>
