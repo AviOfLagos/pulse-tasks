@@ -7,9 +7,10 @@ import { formatDueChip, isDue, toDateTimeLocal } from '../utils/date.js'
  * One task: checkbox, title, due-time chip, priority dot.
  *
  * The row itself is focusable and carries `data-todo-id`, which is how the
- * global Space shortcut knows which task to complete. Edit mode is local state
- * and opens from either the title or the pencil; Enter saves, Escape cancels,
- * and focus returns to the Edit button so keyboard users never lose their place.
+ * global Space shortcut knows which task to complete. Clicking the row (or its
+ * title, or the chevron) opens the details drawer; the pencil still opens the
+ * inline editor for a one-field rename. Enter opens the drawer from the
+ * keyboard; Escape cancels an inline edit and focus returns to the pencil.
  */
 export default function TaskRow({
   todo,
@@ -18,6 +19,7 @@ export default function TaskRow({
   onUpdate,
   onRemove,
   onSelectTag,
+  onOpen,
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(() => toDraft(todo))
@@ -68,6 +70,8 @@ export default function TaskRow({
 
   const overdue = isDue(todo)
   const dueLabel = formatDueChip(todo.dueAt)
+  const steps = todo.steps ?? []
+  const stepsDone = steps.filter((step) => step.done).length
 
   const classes = [
     'task-row',
@@ -86,6 +90,20 @@ export default function TaskRow({
       data-todo-id={todo.id}
       tabIndex={0}
       style={{ '--i': Math.min(index, 12) }}
+      onClick={(event) => {
+        // Anything meant for a control keeps its own click; only clicks that
+        // land on the row itself (or its plain text) open the drawer.
+        if (event.target.closest('button, input, textarea, select, a, label')) return
+        onOpen?.(todo)
+      }}
+      onKeyDown={(event) => {
+        // Enter opens the details, the way activating a list row does. Space is
+        // left to the app-wide shortcut, which completes the task.
+        if (event.key === 'Enter' && event.target === event.currentTarget) {
+          event.preventDefault()
+          onOpen?.(todo)
+        }
+      }}
     >
       <div className="task-main">
         <input
@@ -97,15 +115,15 @@ export default function TaskRow({
         />
 
         <div className="task-body">
-          {/* The title is the edit affordance — the pencil is there for anyone
-              who expects a button, but clicking the words is what people try. */}
+          {/* The title opens the details drawer — the pencil beside it is the
+              one-field shortcut for anyone who only wants to rename. */}
           <button
             type="button"
             className="task-title"
             data-testid="todo-title"
-            onClick={editing ? () => setEditing(false) : startEditing}
-            aria-expanded={editing}
-            title="Edit task"
+            onClick={() => onOpen?.(todo)}
+            aria-haspopup="dialog"
+            title="Open details"
           >
             {todo.title}
           </button>
@@ -133,6 +151,15 @@ export default function TaskRow({
           <span className={`chip chip-time${overdue ? ' is-overdue' : ''}`}>{dueLabel}</span>
         ) : null}
 
+        {steps.length > 0 ? (
+          <span
+            className={`chip chip-steps${stepsDone === steps.length ? ' is-done' : ''}`}
+            title={`${stepsDone} of ${steps.length} steps done`}
+          >
+            {stepsDone}/{steps.length}
+          </span>
+        ) : null}
+
         <span
           className={`priority-dot is-${todo.priority}`}
           role="img"
@@ -143,12 +170,21 @@ export default function TaskRow({
         <div className="task-actions">
           <button
             type="button"
+            className="icon-btn is-open"
+            onClick={() => onOpen?.(todo)}
+            aria-label={`Open details for “${todo.title}”`}
+            title="Open details"
+          >
+            ›
+          </button>
+          <button
+            type="button"
             className="icon-btn"
             ref={editButtonRef}
             onClick={editing ? () => setEditing(false) : startEditing}
             aria-expanded={editing}
-            aria-label={`Edit “${todo.title}”`}
-            title="Edit"
+            aria-label={`Rename “${todo.title}”`}
+            title="Quick rename"
           >
             ✎
           </button>

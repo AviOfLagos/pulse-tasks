@@ -25,6 +25,11 @@ export const PRIORITY_RANK = {
 
 export const MAX_TAGS = 3
 
+/** A task can carry a small checklist ("steps"). Bounded so it stays a list. */
+export const MAX_STEPS = 20
+
+export const MAX_STEP_TEXT = 200
+
 /** The three views. `today` also collects anything overdue or undated. */
 export const TABS = [
   { id: 'today', label: 'Today' },

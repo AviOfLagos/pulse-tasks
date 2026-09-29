@@ -11,6 +11,7 @@
  *     dueAt: string | null,   // ISO timestamp: a moment, not a day, because
  *                             // reminders fire on it
  *     tags: string[],         // de-duplicated, max MAX_TAGS
+ *     steps: [{ id, text, done }], // checklist, max MAX_STEPS
  *     completed: boolean,
  *     createdAt: string,      // ISO timestamp, used for sorting
  *     promptedAt: string|null // when the due reminder last fired, so the app
@@ -21,7 +22,14 @@
  * and upgraded to `dueAt` on load — see `createTodo`.
  */
 
-import { DEFAULT_DUE_HOUR, DEFAULT_PRIORITY, MAX_TAGS, PRIORITIES } from '../constants.js'
+import {
+  DEFAULT_DUE_HOUR,
+  DEFAULT_PRIORITY,
+  MAX_STEPS,
+  MAX_STEP_TEXT,
+  MAX_TAGS,
+  PRIORITIES,
+} from '../constants.js'
 import { addMinutes, isDueAtString, toDueAt } from '../utils/date.js'
 
 let idCounter = 0
@@ -61,6 +69,34 @@ export function normalizeTags(tags) {
   return result
 }
 
+/**
+ * Normalises a checklist into `[{ id, text, done }]`: trimmed, capped, with
+ * stable ids so React keys and step edits survive a re-render.
+ */
+export function normalizeSteps(steps) {
+  if (!Array.isArray(steps)) return []
+
+  const result = []
+  const seen = new Set()
+
+  for (const raw of steps) {
+    const text = String(typeof raw === 'string' ? raw : (raw?.text ?? ''))
+      .trim()
+      .slice(0, MAX_STEP_TEXT)
+    if (!text) continue
+
+    const id = typeof raw?.id === 'string' && raw.id ? raw.id : createId()
+    if (seen.has(id)) continue
+
+    seen.add(id)
+    result.push({ id, text, done: Boolean(raw?.done) })
+
+    if (result.length >= MAX_STEPS) break
+  }
+
+  return result
+}
+
 /** Coerces a possibly dirty input object into a valid todo. Throws without a title. */
 export function createTodo(input = {}) {
   const title = String(input.title ?? '').trim()
@@ -74,6 +110,7 @@ export function createTodo(input = {}) {
     // `dueDate` is the legacy field; it upgrades to a timestamp at 09:00 local.
     dueAt: toDueAt(input.dueAt ?? input.dueDate ?? null, DEFAULT_DUE_HOUR),
     tags: normalizeTags(input.tags),
+    steps: normalizeSteps(input.steps),
     completed: Boolean(input.completed),
     createdAt:
       typeof input.createdAt === 'string' && input.createdAt
@@ -107,6 +144,7 @@ function mergeTodo(todo, changes = {}) {
     priority: PRIORITIES.includes(changes.priority) ? changes.priority : todo.priority,
     dueAt: changes.dueAt === undefined ? todo.dueAt : toDueAt(changes.dueAt, DEFAULT_DUE_HOUR),
     tags: changes.tags === undefined ? todo.tags : normalizeTags(changes.tags),
+    steps: changes.steps === undefined ? todo.steps : normalizeSteps(changes.steps),
     completed: changes.completed === undefined ? todo.completed : Boolean(changes.completed),
     // Moving the due date makes the task promptable again.
     promptedAt: changes.dueAt === undefined ? todo.promptedAt : null,
@@ -127,8 +165,9 @@ function appendNote(todo, note) {
 /**
  * Pure reducer.
  * Actions:
- *   add | update | toggle | toggle-all | remove | clear-completed | replace
- *   complete | snooze | reschedule | append-note | mark-prompted
+ *   add | update | toggle | complete | toggle-all | remove | clear-completed | replace
+ *   snooze | reschedule | append-note | mark-prompted
+ *   step-add | step-edit | step-toggle | step-remove | duplicate
  */
 export function todosReducer(todos, action) {
   const map = (id, change) => todos.map((todo) => (todo.id === id ? change(todo) : todo))
@@ -184,6 +223,66 @@ export function todosReducer(todos, action) {
 
     case 'append-note':
       return map(action.payload?.id, (todo) => appendNote(todo, action.payload?.note))
+
+    case 'step-add': {
+      const { id, text } = action.payload ?? {}
+      const step = normalizeSteps([{ text }])[0]
+      if (!step) return todos
+
+      return map(id, (todo) =>
+        todo.steps.length >= MAX_STEPS ? todo : { ...todo, steps: [...todo.steps, step] },
+      )
+    }
+
+    case 'step-toggle': {
+      const { id, stepId } = action.payload ?? {}
+      return map(id, (todo) => ({
+        ...todo,
+        steps: todo.steps.map((step) =>
+          step.id === stepId ? { ...step, done: !step.done } : step,
+        ),
+      }))
+    }
+
+    case 'step-edit': {
+      const { id, stepId, text } = action.payload ?? {}
+      const next = String(text ?? '').trim().slice(0, MAX_STEP_TEXT)
+
+      // An emptied step keeps its old text: deleting is a button, not a typo.
+      return map(id, (todo) => ({
+        ...todo,
+        steps: todo.steps.map((step) => (step.id === stepId && next ? { ...step, text: next } : step)),
+      }))
+    }
+
+    case 'step-remove': {
+      const { id, stepId } = action.payload ?? {}
+      return map(id, (todo) => ({
+        ...todo,
+        steps: todo.steps.filter((step) => step.id !== stepId),
+      }))
+    }
+
+    case 'duplicate': {
+      // A copy lands directly under its source, so the pair reads as a pair.
+      const { id } = action.payload ?? {}
+      const at = todos.findIndex((todo) => todo.id === id)
+      if (at === -1) return todos
+
+      const source = todos[at]
+      const copy = createTodo({
+        ...source,
+        id: undefined,
+        title: `${source.title} (copy)`,
+        completed: false,
+        createdAt: undefined,
+        promptedAt: null,
+        // The copy is fresh work: the checklist comes along, unticked.
+        steps: source.steps.map((step) => ({ text: step.text, done: false })),
+      })
+
+      return [...todos.slice(0, at + 1), copy, ...todos.slice(at + 1)]
+    }
 
     case 'mark-prompted': {
       const { id, at } = action.payload ?? {}

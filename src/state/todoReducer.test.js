@@ -3,10 +3,12 @@ import { describe, it } from 'node:test'
 
 import {
   createTodo,
+  normalizeSteps,
   normalizeTags,
   sanitizeTodo,
   todosReducer,
 } from './todoReducer.js'
+import { MAX_STEPS } from '../constants.js'
 
 const base = (overrides = {}) => ({
   id: 'a',
@@ -53,6 +55,7 @@ describe('createTodo', () => {
       // The legacy `dueDate` is upgraded to a 09:00 local timestamp.
       dueAt: new Date(2026, 9, 1, 9, 0, 0, 0).toISOString(),
       tags: ['work', 'urgent'],
+      steps: [],
       completed: true,
       createdAt: '2026-01-01T10:00:00.000Z',
       promptedAt: null,
@@ -274,3 +277,139 @@ describe('voice actions', () => {
     assert.equal(todo.promptedAt, null)
   })
 })
+
+describe('checklists (steps)', () => {
+  const seeded = add({
+    id: 's1',
+    title: 'Launch',
+    steps: [
+      { id: 'one', text: 'Draft the copy', done: true },
+      { id: 'two', text: 'Ship it' },
+    ],
+  })
+
+  it('normalises steps on create: trims, keeps done, drops blanks', () => {
+    const [todo] = add({ title: 'Launch', steps: [{ text: '  Draft  ' }, { text: '   ' }, 'Ship'] })
+
+    assert.deepEqual(
+      todo.steps.map((step) => [step.text, step.done]),
+      [
+        ['Draft', false],
+        ['Ship', false],
+      ],
+    )
+  })
+
+  it('caps the checklist so it stays a list', () => {
+    const many = Array.from({ length: MAX_STEPS + 5 }, (_, index) => `Step ${index}`)
+    const [todo] = add({ title: 'Launch', steps: many })
+
+    assert.equal(todo.steps.length, MAX_STEPS)
+  })
+
+  it('gives every step a stable id', () => {
+    const [todo] = add({ title: 'Launch', steps: ['One', 'Two'] })
+    const ids = todo.steps.map((step) => step.id)
+
+    assert.equal(new Set(ids).size, 2)
+    ids.forEach((id) => assert.equal(typeof id, 'string'))
+  })
+
+  it('appends a step and ignores an empty one', () => {
+    const next = todosReducer(seeded, { type: 'step-add', payload: { id: 's1', text: 'Tell the team' } })
+    assert.deepEqual(next[0].steps.map((step) => step.text), [
+      'Draft the copy',
+      'Ship it',
+      'Tell the team',
+    ])
+
+    const unchanged = todosReducer(seeded, { type: 'step-add', payload: { id: 's1', text: '  ' } })
+    assert.deepEqual(unchanged, seeded)
+  })
+
+  it('stops adding steps at the cap', () => {
+    const full = add({
+      id: 's2',
+      title: 'Full',
+      steps: Array.from({ length: MAX_STEPS }, (_, index) => `Step ${index}`),
+    })
+
+    const capped = todosReducer(full, { type: 'step-add', payload: { id: 's2', text: 'One more' } })
+    assert.equal(capped[0].steps.length, MAX_STEPS)
+  })
+
+  it('toggles only the named step', () => {
+    const next = todosReducer(seeded, { type: 'step-toggle', payload: { id: 's1', stepId: 'two' } })
+    assert.deepEqual(next[0].steps.map((step) => step.done), [true, true])
+  })
+
+  it('removes only the named step', () => {
+    const next = todosReducer(seeded, { type: 'step-remove', payload: { id: 's1', stepId: 'one' } })
+    assert.deepEqual(next[0].steps.map((step) => step.id), ['two'])
+  })
+
+  it('replaces the checklist through a normal update', () => {
+    const next = todosReducer(seeded, {
+      type: 'update',
+      payload: { id: 's1', changes: { steps: [{ id: 'z', text: 'Only this' }] } },
+    })
+
+    assert.deepEqual(next[0].steps.map((step) => step.text), ['Only this'])
+  })
+
+  it('an edit that does not mention steps leaves them alone', () => {
+    const next = todosReducer(seeded, {
+      type: 'update',
+      payload: { id: 's1', changes: { title: 'Launch v2' } },
+    })
+
+    assert.deepEqual(next[0].steps, seeded[0].steps)
+  })
+
+  it('sanitizeTodo gives legacy todos an empty checklist', () => {
+    assert.deepEqual(sanitizeTodo({ id: 'x', title: 'Old task' }).steps, [])
+  })
+})
+
+describe('duplicate', () => {
+  const source = add({
+    id: 'd1',
+    title: 'Weekly review',
+    priority: 'high',
+    dueAt: '2026-02-01T09:00:00.000Z',
+    tags: ['work'],
+    steps: [{ id: 'one', text: 'Collect notes', done: true }],
+  })
+
+  it('lands the copy directly under its source', () => {
+    const withSecond = todosReducer(source, {
+      type: 'add',
+      payload: { id: 'd2', title: 'Something else' },
+    })
+
+    const next = todosReducer(withSecond, { type: 'duplicate', payload: { id: 'd1' } })
+    assert.deepEqual(next.map((todo) => todo.title), [
+      'Something else',
+      'Weekly review',
+      'Weekly review (copy)',
+    ])
+  })
+
+  it('keeps the fields that describe the work, resets the ones that describe progress', () => {
+    const next = todosReducer(source, { type: 'duplicate', payload: { id: 'd1' } })
+    const copy = next[1]
+
+    assert.equal(copy.priority, 'high')
+    assert.equal(copy.dueAt, source[0].dueAt)
+    assert.deepEqual(copy.tags, ['work'])
+    assert.equal(copy.completed, false)
+    assert.equal(copy.promptedAt, null)
+    assert.notEqual(copy.id, source[0].id)
+    assert.deepEqual(copy.steps.map((step) => step.done), [false])
+  })
+
+  it('ignores an unknown id', () => {
+    assert.deepEqual(todosReducer(source, { type: 'duplicate', payload: { id: 'nope' } }), source)
+  })
+})
+

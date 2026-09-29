@@ -7,6 +7,7 @@ import NeedsAttention from './components/NeedsAttention.jsx'
 import PermissionDialog from './components/PermissionDialog.jsx'
 import QuickSwitcher from './components/QuickSwitcher.jsx'
 import Sidebar from './components/Sidebar.jsx'
+import TaskDrawer from './components/TaskDrawer.jsx'
 import ReminderCard from './components/ReminderCard.jsx'
 import TaskComposer from './components/TaskComposer.jsx'
 import TaskList from './components/TaskList.jsx'
@@ -15,6 +16,7 @@ import {
   CLOCK_TICK_MS,
   DEFAULT_DUE_HOUR,
   DICTATION_MS,
+  PRIORITY_LABELS,
   REPLY_LISTEN_MS,
   SNOOZE_MINUTES,
   UNDO_TIMEOUT,
@@ -79,6 +81,10 @@ export default function App() {
   // A tag path from the sidebar; includes everything nested under it.
   const [selectedTag, setSelectedTag] = useState(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  // The task whose details drawer is open, if any. Tracking the id (not the
+  // task) means the drawer always renders live store data, and closes itself
+  // if the task is deleted underneath it.
+  const [openId, setOpenId] = useState(null)
 
   const undoTimer = useRef(null)
   // What to resume once the first-use explainer is accepted.
@@ -128,6 +134,8 @@ export default function App() {
     () => todos.filter((todo) => !todo.completed && todo.dueAt && new Date(todo.dueAt) <= now).length,
     [todos, now],
   )
+
+  const openTodo = useMemo(() => todos.find((todo) => todo.id === openId) ?? null, [todos, openId])
 
   const announce = useCallback((message) => setAnnouncement(message), [])
 
@@ -210,9 +218,21 @@ export default function App() {
   const handleUpdate = useCallback(
     (id, changes) => {
       dispatch({ type: 'update', payload: { id, changes } })
-      announce(`Saved “${changes.title}”.`)
+
+      // The drawer saves one field at a time, so the announcement says which
+      // field moved rather than repeating the title for a priority tweak.
+      const todo = todos.find((item) => item.id === id)
+      const title = changes.title ?? todo?.title ?? 'task'
+
+      if (changes.title !== undefined) {
+        announce(`Renamed to “${title}”.`)
+        return
+      }
+
+      const what = changeLabel(changes)
+      announce(what ? `${what} for “${title}”.` : `Saved “${title}”.`)
     },
-    [announce, dispatch],
+    [announce, dispatch, todos],
   )
 
   const handleRemove = useCallback(
@@ -232,6 +252,59 @@ export default function App() {
     dispatch({ type: 'clear-completed' })
     announce(`Cleared ${label}.`)
   }, [announce, dispatch, offerUndo, stats.done, todos])
+
+  /* ---------------------------------------------------------------- *
+   * Details drawer
+   * ---------------------------------------------------------------- */
+
+  const openDetails = useCallback((todo) => setOpenId(todo.id), [])
+  const closeDetails = useCallback(() => setOpenId(null), [])
+
+  const handleSnooze = useCallback(
+    (id, minutes = SNOOZE_MINUTES) => {
+      dispatch({ type: 'snooze', payload: { id, minutes } })
+      announce(`Snoozed for ${minutes} minutes.`)
+    },
+    [announce, dispatch],
+  )
+
+  const handleDuplicate = useCallback(
+    (id) => {
+      const todo = todos.find((item) => item.id === id)
+      if (!todo) return
+
+      offerUndo(todos, `Duplicated “${todo.title}”.`)
+      dispatch({ type: 'duplicate', payload: { id } })
+      announce(`Duplicated “${todo.title}”.`)
+    },
+    [announce, dispatch, offerUndo, todos],
+  )
+
+  const handleAddStep = useCallback(
+    (id, text) => {
+      dispatch({ type: 'step-add', payload: { id, text } })
+      announce(`Step added to the checklist: ${text}.`)
+    },
+    [announce, dispatch],
+  )
+
+  const handleEditStep = useCallback(
+    (id, stepId, text) => dispatch({ type: 'step-edit', payload: { id, stepId, text } }),
+    [dispatch],
+  )
+
+  const handleToggleStep = useCallback(
+    (id, stepId) => dispatch({ type: 'step-toggle', payload: { id, stepId } }),
+    [dispatch],
+  )
+
+  const handleRemoveStep = useCallback(
+    (id, stepId) => {
+      dispatch({ type: 'step-remove', payload: { id, stepId } })
+      announce('Step removed.')
+    },
+    [announce, dispatch],
+  )
 
   /**
    * Fills the app with a realistic set of tasks so the whole thing — tabs,
@@ -271,6 +344,9 @@ export default function App() {
       setQuery('')
       setTab(todo.completed ? 'done' : matchesTab(todo, 'today', new Date()) ? 'today' : 'upcoming')
       setRevealId(todo.id)
+      // If the drawer is open, it follows the jump instead of pointing at a task
+      // the user has just navigated away from.
+      setOpenId((current) => (current ? todo.id : current))
     },
     [],
   )
@@ -390,6 +466,31 @@ export default function App() {
     handleTranscript(transcript)
   }, [handleTranscript, listenAs, permissions, recognition])
 
+  /**
+   * Dictate straight into the open drawer's notes.
+   *
+   * The task is captured before the mic opens: listening takes seconds, and the
+   * note must land on the task you were looking at when you pressed the button.
+   */
+  const handleVoiceNote = useCallback(async () => {
+    if (recognition.listening) {
+      recognition.stop()
+      return
+    }
+
+    const target = openId
+    if (!target) return
+
+    pendingVoice.current = 'note'
+    if (!permissions.ensure()) return
+
+    const transcript = await listenAs('note', DICTATION_MS)
+    if (!transcript) return
+
+    dispatch({ type: 'append-note', payload: { id: target, note: transcript } })
+    announce('Note added.')
+  }, [announce, dispatch, listenAs, openId, permissions, recognition])
+
   const confirmPending = useCallback(
     (draft) => {
       handleAdd(draft)
@@ -425,8 +526,9 @@ export default function App() {
 
     if (resume === 'composer') handleVoiceAdd()
     else if (resume === 'reply') listenForAnswer()
+    else if (resume === 'note') handleVoiceNote()
     else if (resume === 'confirm') confirmListenRef.current?.()
-  }, [handleVoiceAdd, listenForAnswer, permissions])
+  }, [handleVoiceAdd, handleVoiceNote, listenForAnswer, permissions])
 
   /** Applies a reminder answer, spoken or clicked. */
   const handleReminderAnswer = useCallback(
@@ -439,8 +541,7 @@ export default function App() {
         }
 
         case 'snooze': {
-          dispatch({ type: 'snooze', payload: { id: prompt.id, minutes: SNOOZE_MINUTES } })
-          announce(`Snoozed “${prompt.title}” for ${SNOOZE_MINUTES} minutes.`)
+          handleSnooze(prompt.id)
           synthesis.speak(`Okay, I'll ask again in ${SNOOZE_MINUTES} minutes.`)
           break
         }
@@ -464,7 +565,7 @@ export default function App() {
           break
       }
     },
-    [announce, dispatch, handleComplete, synthesis],
+    [announce, dispatch, handleComplete, handleSnooze, synthesis],
   )
 
   const markPrompted = useCallback(
@@ -601,9 +702,18 @@ export default function App() {
 
   useShortcuts({
     onSwitcher: () => setSwitcherOpen((open) => !open),
-    onNew: () => composerRef.current?.focus(),
-    onSearch: () => searchRef.current?.focus(),
+    // The drawer is a modal: task shortcuts must not act on the list behind it.
+    onNew: () => {
+      if (openId) return
+      composerRef.current?.focus()
+    },
+    onSearch: () => {
+      if (openId) return
+      searchRef.current?.focus()
+    },
     onComplete: () => {
+      if (openId) return
+
       const row =
         document.activeElement?.closest?.('[data-todo-id]') ??
         document.querySelector('.task-list [data-todo-id]')
@@ -614,7 +724,9 @@ export default function App() {
       handleToggle(row.dataset.todoId)
     },
     onEscape: () => {
+      // The drawer is a modal, so it is the first thing Escape closes.
       if (switcherOpen) setSwitcherOpen(false)
+      else if (openId) closeDetails()
       else if (recognition.listening) recognition.stop()
       else if (pending) cancelPending()
       else if (reminder.prompt) reminder.dismiss()
@@ -686,6 +798,7 @@ export default function App() {
               onRemove={handleRemove}
               onClearDone={handleClearDone}
               onLoadDemo={handleLoadDemo}
+              onOpen={openDetails}
             />
           </main>
 
@@ -742,6 +855,28 @@ export default function App() {
         />
       ) : null}
 
+      {openTodo ? (
+        <TaskDrawer
+          todo={openTodo}
+          knownTags={knownTags}
+          onClose={closeDetails}
+          onToggle={handleToggle}
+          onUpdate={handleUpdate}
+          onComplete={handleComplete}
+          onSnooze={handleSnooze}
+          onDuplicate={handleDuplicate}
+          onRemove={handleRemove}
+          onSelectTag={(tag) => setSelectedTag(tagPath(tag))}
+          onAddStep={handleAddStep}
+          onEditStep={handleEditStep}
+          onToggleStep={handleToggleStep}
+          onRemoveStep={handleRemoveStep}
+          onVoiceNote={handleVoiceNote}
+          listening={listenTarget === 'note'}
+          micSupported={recognition.supported}
+        />
+      ) : null}
+
       {undo ? (
         <UndoToast message={undo.message} onUndo={handleUndo} onDismiss={dismissUndo} />
       ) : null}
@@ -769,3 +904,18 @@ export default function App() {
     </div>
   )
 }
+
+/** Names the field an edit touched, for the screen-reader announcement. */
+function changeLabel(changes = {}) {
+  if (changes.title !== undefined) return 'Renamed'
+  if (changes.dueAt !== undefined) return changes.dueAt ? 'Due time set' : 'Due time cleared'
+  if (changes.priority !== undefined) {
+    return `Priority set to ${PRIORITY_LABELS[changes.priority] ?? changes.priority}`
+  }
+  if (changes.description !== undefined) return 'Notes saved'
+  if (changes.tags !== undefined) return 'Tags saved'
+  if (changes.steps !== undefined) return 'Checklist saved'
+
+  return ''
+}
+
