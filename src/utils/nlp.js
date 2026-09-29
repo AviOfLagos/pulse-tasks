@@ -12,7 +12,26 @@
  */
 
 import { DEFAULT_DUE_HOUR, DEFAULT_PRIORITY } from '../constants.js'
+import { suggestTag } from './categorise.js'
 import { startOfDay } from './date.js'
+
+const MONTHS = [
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
+]
+
+/** `jan|feb|…` — matches both the abbreviation and the full name. */
+const MONTH_ALTERNATIVES = MONTHS.map((month) => month.slice(0, 3)).join('|')
 
 const WEEKDAYS = [
   'sunday',
@@ -170,6 +189,131 @@ function matchTime(lower, cuts) {
   return null
 }
 
+/**
+ * Builds a local date and checks it is real.
+ *
+ * `new Date(3030, 1, 30)` happily becomes 2 March — which is how "30th of Feb"
+ * would otherwise turn into a plausible-looking due date. Round-tripping the
+ * components catches that.
+ */
+function realDate(year, monthIndex, day) {
+  const date = new Date(year, monthIndex, day)
+
+  return date.getFullYear() === year && date.getMonth() === monthIndex && date.getDate() === day
+    ? date
+    : null
+}
+
+/** A year in the past, with no year given, means they mean next year. */
+function resolveYear(monthIndex, day, now, statedYear) {
+  if (statedYear) return statedYear
+
+  const thisYear = now.getFullYear()
+  const candidate = new Date(thisYear, monthIndex, day)
+
+  return candidate < startOfDay(now) ? thisYear + 1 : thisYear
+}
+
+/**
+ * Calendar dates: "30th of Feb 3030", "12 Oct", "Oct 12 2027", "on the 3rd",
+ * "12/10/2026", "2026-10-12".
+ *
+ * Returns `{ date }`, or `{ invalid, phrase }` when the words clearly name a
+ * date that does not exist — the caller keeps that phrase in the title and
+ * says why, rather than silently inventing a nearby day.
+ */
+function matchAbsoluteDate(lower, cuts, now) {
+  // 2026-10-12
+  const iso = /\b(\d{4})-(\d{2})-(\d{2})\b/.exec(lower)
+  if (iso) {
+    const date = realDate(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+    if (date) {
+      cut(cuts, iso)
+      return { date }
+    }
+    return { invalid: true, phrase: iso[0] }
+  }
+
+  // 30th of February 3030 · 12 Oct · 3 April 2027
+  const dayFirst = new RegExp(
+    `\\b(?:on\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH_ALTERNATIVES})[a-z]*\\.?(?:,?\\s+(\\d{4}))?\\b`,
+  ).exec(lower)
+  if (dayFirst) {
+    const day = Number(dayFirst[1])
+    const monthIndex = MONTHS.findIndex((month) => month.startsWith(dayFirst[2]))
+    const year = resolveYear(monthIndex, day, now, Number(dayFirst[3]) || 0)
+    const date = realDate(year, monthIndex, day)
+
+    if (date) {
+      cut(cuts, dayFirst)
+      return { date }
+    }
+    return { invalid: true, phrase: dayFirst[0] }
+  }
+
+  // October 12 · Oct 12th 2027
+  const monthFirst = new RegExp(
+    `\\b(?:on\\s+)?(${MONTH_ALTERNATIVES})[a-z]*\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?\\b`,
+  ).exec(lower)
+  if (monthFirst) {
+    const day = Number(monthFirst[2])
+    const monthIndex = MONTHS.findIndex((month) => month.startsWith(monthFirst[1]))
+    const year = resolveYear(monthIndex, day, now, Number(monthFirst[3]) || 0)
+    const date = realDate(year, monthIndex, day)
+
+    if (date) {
+      cut(cuts, monthFirst)
+      return { date }
+    }
+    return { invalid: true, phrase: monthFirst[0] }
+  }
+
+  // 12/10/2026 — day first unless the first number cannot be a day or month.
+  const numeric = /\b(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?\b/.exec(lower)
+  if (numeric) {
+    const first = Number(numeric[1])
+    const second = Number(numeric[2])
+    const monthFirstOrder = first <= 12 && second > 12
+
+    const day = monthFirstOrder ? second : first
+    const monthIndex = (monthFirstOrder ? first : second) - 1
+    const statedYear = Number(numeric[3]) || 0
+    const year = resolveYear(
+      monthIndex,
+      day,
+      now,
+      statedYear && statedYear < 100 ? 2000 + statedYear : statedYear,
+    )
+
+    if (monthIndex >= 0 && monthIndex <= 11) {
+      const date = realDate(year, monthIndex, day)
+      if (date) {
+        cut(cuts, numeric)
+        return { date }
+      }
+    }
+
+    return { invalid: true, phrase: numeric[0] }
+  }
+
+  // "on the 3rd" — the next time that date comes round.
+  const bareDay = /\bon the (\d{1,2})(?:st|nd|rd|th)\b/.exec(lower)
+  if (bareDay) {
+    const day = Number(bareDay[1])
+    let date = realDate(now.getFullYear(), now.getMonth(), day)
+
+    if (!date) return { invalid: true, phrase: bareDay[0] }
+    if (date < startOfDay(now)) {
+      date = realDate(now.getFullYear(), now.getMonth() + 1, day) ?? date
+    }
+
+    cut(cuts, bareDay)
+    return { date }
+  }
+
+  return null
+}
+
 /** "today", "tomorrow", "friday", "next week", "in 3 days" → a day offset. */
 function matchDay(lower, cuts, now) {
   const relative = /\bin\s+(\d{1,3})\s*(minutes?|mins?|hours?|hrs?|days?|weeks?)\b/.exec(lower)
@@ -205,6 +349,19 @@ function matchDay(lower, cuts, now) {
     cut(cuts, nextWeek)
     return { offset: 7 }
   }
+
+  const nextMonth = /\bnext month\b/.exec(lower)
+  if (nextMonth) {
+    cut(cuts, nextMonth)
+    const date = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate())
+    return { absolute: date }
+  }
+
+  // Calendar dates are tried before weekday names so "12 March" is not read
+  // as "March" the weekday-less word next to a stray number.
+  const absolute = matchAbsoluteDate(lower, cuts, now)
+  if (absolute?.invalid) return absolute
+  if (absolute) return { absolute: absolute.date }
 
   const weekday = new RegExp(`\\b(?:on\\s+|next\\s+|this\\s+)?(${WEEKDAYS.join('|')})\\b`).exec(
     lower,
@@ -282,9 +439,23 @@ export function parseDueExpression(raw, now = new Date(), defaultHour = DEFAULT_
   const day = matchDay(lower, cuts, now)
   const time = matchTime(lower, cuts)
 
+  // A date that does not exist ("30th of Feb"): keep the words in the title
+  // and hand the caller something to say about it.
+  if (day?.invalid) {
+    return { dueAt: null, cuts, warning: `“${day.phrase}” is not a real date.` }
+  }
+
   if (!day && !time) return { dueAt: null, cuts }
 
+  // "in 20 minutes" — already an exact moment.
   if (day?.exact) return { dueAt: day.exact.toISOString(), cuts }
+
+  // A calendar date: keep its day, take the time from the phrase or the default.
+  if (day?.absolute) {
+    const date = startOfDay(day.absolute)
+    date.setHours(time ? time.hour : defaultHour, time ? time.minute : 0, 0, 0)
+    return { dueAt: date.toISOString(), cuts }
+  }
 
   const offset = day?.offset ?? time?.day ?? null
   const date = startOfDay(now)
@@ -305,7 +476,16 @@ export function parseDueExpression(raw, now = new Date(), defaultHour = DEFAULT_
  */
 export function parseTaskInput(raw, now = new Date(), defaultHour = DEFAULT_DUE_HOUR) {
   const text = String(raw ?? '').replace(/\s+/g, ' ').trim()
-  if (!text) return { title: '', dueAt: null, priority: DEFAULT_PRIORITY, tags: [] }
+  if (!text) {
+    return {
+      title: '',
+      dueAt: null,
+      priority: DEFAULT_PRIORITY,
+      tags: [],
+      suggestedTag: null,
+      warning: '',
+    }
+  }
 
   const lower = text.toLowerCase()
   const cuts = []
@@ -313,7 +493,7 @@ export function parseTaskInput(raw, now = new Date(), defaultHour = DEFAULT_DUE_
   const tags = matchTags(text, cuts)
   const { priority } = matchPriority(lower, cuts)
 
-  const { dueAt, cuts: dueCuts } = parseDueExpression(text, now, defaultHour)
+  const { dueAt, cuts: dueCuts, warning } = parseDueExpression(text, now, defaultHour)
   cuts.push(...dueCuts)
 
   const title = buildTitle(text, cuts)
@@ -324,6 +504,9 @@ export function parseTaskInput(raw, now = new Date(), defaultHour = DEFAULT_DUE_
     dueAt,
     priority,
     tags,
+    // Only ever a suggestion, and only when nothing was tagged by hand.
+    suggestedTag: tags.length > 0 ? null : suggestTag(title || text),
+    warning: warning ?? '',
   }
 }
 

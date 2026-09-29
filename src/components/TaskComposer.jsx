@@ -82,7 +82,11 @@ const TaskComposer = forwardRef(function TaskComposer(
       </div>
 
       <div className="composer-foot">
-        {parsed && (parsed.dueAt || parsed.priority !== 'medium' || parsed.tags.length > 0) ? (
+        {parsed &&
+        (parsed.dueAt ||
+          parsed.priority !== 'medium' ||
+          parsed.tags.length > 0 ||
+          parsed.suggestedTag) ? (
           <p className="parse-preview" aria-live="polite">
             <span className="parse-label">Understood:</span>
             <span className="chip">{parsed.title}</span>
@@ -97,6 +101,12 @@ const TaskComposer = forwardRef(function TaskComposer(
                 #{tag}
               </span>
             ))}
+            {parsed.suggestedTag ? (
+              <span className="chip chip-suggested" title="Guessed from the words — edit it later">
+                #{parsed.suggestedTag}
+                <span className="chip-note">suggested</span>
+              </span>
+            ) : null}
           </p>
         ) : (
           <p className="composer-hint">
@@ -105,6 +115,12 @@ const TaskComposer = forwardRef(function TaskComposer(
               : 'Press N to jump here, / to search.'}
           </p>
         )}
+
+        {parsed?.warning ? (
+          <p className="parse-warning" role="status">
+            {parsed.warning} It stays in the title — set a due date by hand if you meant one.
+          </p>
+        ) : null}
 
         {error || voiceError ? (
           <p className="form-error" role="alert">
