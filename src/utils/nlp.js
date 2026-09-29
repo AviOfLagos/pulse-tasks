@@ -481,6 +481,7 @@ export function parseTaskInput(raw, now = new Date(), defaultHour = DEFAULT_DUE_
       title: '',
       dueAt: null,
       priority: DEFAULT_PRIORITY,
+      priorityFound: false,
       tags: [],
       suggestedTag: null,
       warning: '',
@@ -491,7 +492,7 @@ export function parseTaskInput(raw, now = new Date(), defaultHour = DEFAULT_DUE_
   const cuts = []
 
   const tags = matchTags(text, cuts)
-  const { priority } = matchPriority(lower, cuts)
+  const { priority, found: priorityFound } = matchPriority(lower, cuts)
 
   const { dueAt, cuts: dueCuts, warning } = parseDueExpression(text, now, defaultHour)
   cuts.push(...dueCuts)
@@ -503,6 +504,9 @@ export function parseTaskInput(raw, now = new Date(), defaultHour = DEFAULT_DUE_
     title: title || text,
     dueAt,
     priority,
+    // Whether the text actually said so, which is what lets a default
+    // priority apply without overriding "urgent".
+    priorityFound,
     tags,
     // Only ever a suggestion, and only when nothing was tagged by hand.
     suggestedTag: tags.length > 0 ? null : suggestTag(title || text),

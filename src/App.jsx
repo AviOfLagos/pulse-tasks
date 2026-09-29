@@ -9,21 +9,22 @@ import QuickSwitcher from './components/QuickSwitcher.jsx'
 import Sidebar from './components/Sidebar.jsx'
 import TaskDrawer from './components/TaskDrawer.jsx'
 import ReminderCard from './components/ReminderCard.jsx'
+import SettingsDialog from './components/SettingsDialog.jsx'
 import TaskComposer from './components/TaskComposer.jsx'
 import TaskList from './components/TaskList.jsx'
 import UndoToast from './components/UndoToast.jsx'
 import {
   CLOCK_TICK_MS,
-  DEFAULT_DUE_HOUR,
   DICTATION_MS,
   PRIORITY_LABELS,
   REPLY_LISTEN_MS,
-  SNOOZE_MINUTES,
   UNDO_TIMEOUT,
 } from './constants.js'
 import { missingDemoTodos } from './state/demoTodos.js'
+import { fromBackup, mergeTodos, toBackup } from './utils/backup.js'
 import { useReminders } from './hooks/useReminders.js'
 import { useLocalAI } from './hooks/useLocalAI.js'
+import { useSettings } from './hooks/useSettings.js'
 import { useShortcuts } from './hooks/useShortcuts.js'
 import { useSpeechRecognition, useSpeechSynthesis } from './hooks/useSpeech.js'
 import { useTodos } from './hooks/useTodos.js'
@@ -68,7 +69,8 @@ export default function App() {
   const [now, setNow] = useState(() => new Date())
   const [announcement, setAnnouncement] = useState('')
   const [undo, setUndo] = useState(null)
-  const [remindersOn, setRemindersOn] = useState(true)
+  const { settings, update: updateSettings } = useSettings()
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Which surface the shared microphone is currently feeding.
   const [listenTarget, setListenTarget] = useState(null)
   // Who *last* used the mic. `listenTarget` clears when listening stops, but
@@ -95,7 +97,10 @@ export default function App() {
   const searchRef = useRef(null)
 
   const recognition = useSpeechRecognition()
-  const synthesis = useSpeechSynthesis()
+  const synthesis = useSpeechSynthesis({
+    voiceURI: settings.voiceURI,
+    rate: settings.speechRate,
+  })
   const permissions = useVoicePermissions()
 
   // Gentle clock: re-evaluates due times so chips and tabs stay honest.
@@ -128,7 +133,7 @@ export default function App() {
   }, [tagTree])
 
   // Declared after the vocabulary it is given, not with the other hooks.
-  const ai = useLocalAI({ knownTags })
+  const ai = useLocalAI({ knownTags, enabled: settings.aiSuggestions })
   // What the bell counts: unfinished work whose moment has passed.
   const dueCount = useMemo(
     () => todos.filter((todo) => !todo.completed && todo.dueAt && new Date(todo.dueAt) <= now).length,
@@ -153,8 +158,8 @@ export default function App() {
 
   /** A task with no spoken or typed time lands on the day you are looking at. */
   const defaultDueAt = useCallback(
-    () => (selectedDay ? toDueAt(selectedDay, DEFAULT_DUE_HOUR) : null),
-    [selectedDay],
+    () => (selectedDay ? toDueAt(selectedDay, settings.defaultDueHour) : null),
+    [selectedDay, settings.defaultDueHour],
   )
 
   const handleAdd = useCallback(
@@ -169,13 +174,14 @@ export default function App() {
         // Explicit beats the branch you are in, which beats the model, which
         // beats the keyword table. Everything the user decided outranks
         // everything that was guessed.
+        priority: input.priorityFound ? input.priority : settings.defaultPriority,
         tags: input.tags?.length
           ? input.tags
           : selectedTag
             ? [selectedTag]
             : input.aiTag
               ? [input.aiTag]
-              : input.suggestedTag
+              : settings.keywordSuggestions && input.suggestedTag
                 ? [input.suggestedTag]
                 : [],
       }
@@ -186,7 +192,14 @@ export default function App() {
           : `Added “${payload.title}”.`,
       )
     },
-    [announce, defaultDueAt, dispatch, selectedTag],
+    [
+      announce,
+      defaultDueAt,
+      dispatch,
+      selectedTag,
+      settings.defaultPriority,
+      settings.keywordSuggestions,
+    ],
   )
 
   const handleToggle = useCallback(
@@ -261,11 +274,11 @@ export default function App() {
   const closeDetails = useCallback(() => setOpenId(null), [])
 
   const handleSnooze = useCallback(
-    (id, minutes = SNOOZE_MINUTES) => {
+    (id, minutes = settings.snoozeMinutes) => {
       dispatch({ type: 'snooze', payload: { id, minutes } })
       announce(`Snoozed for ${minutes} minutes.`)
     },
-    [announce, dispatch],
+    [announce, dispatch, settings.snoozeMinutes],
   )
 
   const handleDuplicate = useCallback(
@@ -360,6 +373,50 @@ export default function App() {
     setRevealId(null)
   }, [revealId, visibleTodos])
 
+  const handleExport = useCallback(() => {
+    const blob = new Blob([JSON.stringify(toBackup(todos), null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `pulse-tasks-${new Date().toISOString().slice(0, 10)}.json`
+    link.click()
+
+    URL.revokeObjectURL(url)
+    announce(`Exported ${todos.length} tasks.`)
+  }, [announce, todos])
+
+  /** Merges a backup in. Adding rather than replacing: an import that wiped
+   *  what you already had would be the most expensive undo in the app. */
+  const handleImport = useCallback(
+    async (file) => {
+      const { todos: incoming, error, skipped } = fromBackup(await file.text())
+      if (error) return error
+
+      const { todos: next, added } = mergeTodos(todos, incoming)
+      if (added === 0) return 'Those tasks are already here.'
+
+      offerUndo(todos, `Imported ${added} ${added === 1 ? 'task' : 'tasks'}.`)
+      dispatch({ type: 'replace', payload: { todos: next } })
+      announce(`Imported ${added} tasks.`)
+
+      return `Imported ${added} ${added === 1 ? 'task' : 'tasks'}.${
+        skipped ? ` ${skipped} unreadable entries were skipped.` : ''
+      }`
+    },
+    [announce, dispatch, offerUndo, todos],
+  )
+
+  const handleClearAll = useCallback(() => {
+    if (todos.length === 0) return
+
+    offerUndo(todos, `Deleted all ${todos.length} tasks.`)
+    dispatch({ type: 'replace', payload: { todos: [] } })
+    announce('Deleted every task.')
+  }, [announce, dispatch, offerUndo, todos])
+
   const handleUndo = useCallback(() => {
     if (!undo) return
 
@@ -398,7 +455,7 @@ export default function App() {
    */
   const handleTranscript = useCallback(
     (transcript) => {
-      const edit = parseEditCommand(transcript, todos, new Date())
+      const edit = parseEditCommand(transcript, todos, new Date(), settings.defaultDueHour)
 
       if (edit) {
         dispatch({ type: 'update', payload: { id: edit.todo.id, changes: edit.changes } })
@@ -410,7 +467,7 @@ export default function App() {
         return
       }
 
-      const parsed = parseTaskInput(transcript, new Date())
+      const parsed = parseTaskInput(transcript, new Date(), settings.defaultDueHour)
       if (!parsed.title) return
 
       const decided = parsed.tags.length > 0 || Boolean(selectedTag)
@@ -447,7 +504,7 @@ export default function App() {
         })
       }
     },
-    [ai, announce, defaultDueAt, dispatch, selectedTag, synthesis, todos],
+    [ai, announce, defaultDueAt, dispatch, selectedTag, settings.defaultDueHour, synthesis, todos],
   )
 
   const handleVoiceAdd = useCallback(async () => {
@@ -542,7 +599,7 @@ export default function App() {
 
         case 'snooze': {
           handleSnooze(prompt.id)
-          synthesis.speak(`Okay, I'll ask again in ${SNOOZE_MINUTES} minutes.`)
+          synthesis.speak(`Okay, I'll ask again in ${settings.snoozeMinutes} minutes.`)
           break
         }
 
@@ -661,7 +718,7 @@ export default function App() {
   const reminder = useReminders({
     todos,
     // One card at a time: a reminder would talk over the confirmation.
-    enabled: remindersOn && !pending,
+    enabled: settings.voiceReminders && !pending,
     speak: synthesis.speak,
     listen: listenForReply,
     notify: permissions.notify,
@@ -742,6 +799,7 @@ export default function App() {
         total={stats.total}
         onSelectTag={setSelectedTag}
         onLoadDemo={handleLoadDemo}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <div className="content">
@@ -751,10 +809,10 @@ export default function App() {
           dueCount={dueCount}
           onNewTask={() => composerRef.current?.focus()}
           onShowDue={handleShowDue}
-          remindersOn={remindersOn}
+          remindersOn={settings.voiceReminders}
           onToggleReminders={() => {
-            const next = !remindersOn
-            setRemindersOn(next)
+            const next = !settings.voiceReminders
+            updateSettings({ voiceReminders: next })
             if (next) {
               pendingVoice.current = null
               permissions.ensure()
@@ -773,6 +831,8 @@ export default function App() {
           voiceError={lastListenTarget === 'composer' ? recognition.error : ''}
           micSupported={recognition.supported}
           ai={ai}
+          defaultDueHour={settings.defaultDueHour}
+          keywordSuggestions={settings.keywordSuggestions}
         />
 
         <div className="workspace">
@@ -848,6 +908,7 @@ export default function App() {
           prompt={reminder.prompt}
           heard={reminder.heard}
           listening={listenTarget === 'reply'}
+          snoozeMinutes={settings.snoozeMinutes}
           onYes={() => reminder.resolve({ intent: 'complete' })}
           onSnooze={() => reminder.resolve({ intent: 'snooze' })}
           onListen={listenForAnswer}
@@ -887,9 +948,26 @@ export default function App() {
           onPick={revealTodo}
           onCreate={(text) => {
             setSwitcherOpen(false)
-            handleAdd(parseTaskInput(text, new Date()))
+            handleAdd(parseTaskInput(text, new Date(), settings.defaultDueHour))
           }}
           onClose={() => setSwitcherOpen(false)}
+        />
+      ) : null}
+
+      {settingsOpen ? (
+        <SettingsDialog
+          settings={settings}
+          onChange={updateSettings}
+          ai={ai}
+          voices={synthesis.voices}
+          permissions={permissions}
+          taskCount={todos.length}
+          onSpeakTest={() => synthesis.speak('This is how reminders will sound.')}
+          onLoadDemo={handleLoadDemo}
+          onExport={handleExport}
+          onImport={handleImport}
+          onClearAll={handleClearAll}
+          onClose={() => setSettingsOpen(false)}
         />
       ) : null}
 

@@ -88,6 +88,23 @@ Type or say a sentence; the parser pulls out what it can and shows you before an
   you are working in. It is shown as a dashed *suggested* chip before you commit, and matching is
   whole-word, so "app" does not fire inside "apparel".
 
+### Settings
+
+**Settings** in the sidebar, above *Load demo data*. One place for the things that used to be
+hard-coded or tucked into a corner:
+
+- **Voice** — spoken reminders on or off, which system voice speaks and how fast (with a Test
+  button), how long "later" snoozes for, and the microphone and notification permissions with a
+  status and a way to grant them.
+- **On-device AI** — whether the local model may suggest categories, what the browser currently
+  reports, and — when it says unavailable — the exact four steps to turn it on, since the app can
+  explain a `chrome://flags` page but cannot open one for you.
+- **New tasks** — what hour a bare "tomorrow" means, and the priority a task gets when it does not
+  say.
+- **Your data** — export every task to JSON, import one back, load the demo set, or delete
+  everything behind a confirm. Import *merges*: it adds tasks whose ids you do not already have, so
+  importing the same file twice changes nothing and an import can never silently replace your list.
+
 ### On-device AI (optional)
 
 | | |
@@ -193,7 +210,8 @@ src/
   index.css                design tokens + components (responsive)
   constants.js             priorities, tabs, timings, storage keys
   components/
-    Sidebar.jsx            left navbar: wordmark + tag tree
+    Sidebar.jsx            left navbar: wordmark, tag tree, settings
+    SettingsDialog.jsx     voice, AI, defaults and import/export
     AppHeader.jsx          top nav: clock, progress, + New, bell, reminder switch
     ProgressBar.jsx        completion bar for the top nav
     TaskComposer.jsx       big input + mic + Add, with a live parse preview
@@ -214,10 +232,12 @@ src/
     useTodos.js            useReducer + persist on change
     useSpeech.js           SpeechRecognition (restarts until its deadline) / speechSynthesis
     useLocalAI.js          Chrome Prompt API session lifecycle, download and suggestion
+    useSettings.js         settings state, persisted like the tasks are
     useVoicePermissions.js mic + notification permission, asked once
     useReminders.js        the 30-second due sweep and the ask/listen cycle
     useShortcuts.js        N / · Space, ignored while typing
   state/
+    settings.js            defaults, validation and persistence for settings
     todoReducer.js         pure store, incl. snooze/reschedule/note/prompted
     storage.js             defensive localStorage adapter (tasks + composer draft)
     demoTodos.js           the "Load demo data" set, positioned relative to now
@@ -227,6 +247,7 @@ src/
     tags.js                nested-tag paths, matching and the sidebar tree
     categorise.js          keyword table behind the suggested tag
     aiTagger.js            prompts, JSON schema and validation for the on-device model
+    backup.js              export, import and the merge that makes import safe
     rank.js                subsequence ranking for the quick switcher
     todoFilters.js         tabs, sorting, stats, calendar index, urgent + reminder selectors
 ```
@@ -290,6 +311,8 @@ without crashing the UI.
 | `src/state/todoReducer.test.js` | tag normalisation, creation defaults, validation, every action incl. snooze/reschedule/notes, legacy `dueDate` upgrade |
 | `src/state/storage.test.js` | persistence round-trip, corrupted/legacy/invalid payloads, draft round-trip, throwing or missing `localStorage` |
 | `src/state/demoTodos.test.js` | demo data fills every tab, includes an overdue task, unique ids, idempotent re-loading |
+| `src/state/settings.test.js` | defaults for junk input, clamping a speech rate, rejecting an unoffered snooze length or an unknown priority |
+| `src/utils/backup.test.js` | round-tripping an export, hand-edited files, partial recovery, and that importing twice adds nothing |
 | `src/utils/aiTagger.test.js` | prompt construction, vocabulary cap, and validating what a small model actually returns (prose, junk, empty, over-deep paths) |
 | `src/utils/categorise.test.js` | whole-word matching, specificity, returning nothing rather than guessing |
 | `src/utils/tags.test.js` | path splitting, branch matching (a parent includes its children), tree shape and per-node counts |

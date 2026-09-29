@@ -234,14 +234,31 @@ export function useSpeechRecognition() {
  * Text to speech. `speak()` resolves once the utterance finishes (or fails), so
  * the reminder flow can wait for the question to be *said* before it starts
  * listening for the answer — otherwise the mic hears the app itself.
+ *
+ * The voice and rate come from settings rather than each call site, so there is
+ * one place that decides how the app sounds.
  */
-export function useSpeechSynthesis() {
+export function useSpeechSynthesis({ voiceURI = '', rate = 1 } = {}) {
   const [speaking, setSpeaking] = useState(false)
+  const [voices, setVoices] = useState([])
 
   const supported = useMemo(
     () => typeof window !== 'undefined' && 'speechSynthesis' in window,
     [],
   )
+
+  // The voice list is populated asynchronously and is empty on the first call
+  // in most browsers, so read it again when the browser says it has changed.
+  useEffect(() => {
+    if (!supported) return undefined
+
+    const read = () => setVoices(window.speechSynthesis.getVoices())
+
+    read()
+    window.speechSynthesis.addEventListener('voiceschanged', read)
+
+    return () => window.speechSynthesis.removeEventListener('voiceschanged', read)
+  }, [supported])
 
   const cancel = useCallback(() => {
     if (!supported) return
@@ -262,8 +279,13 @@ export function useSpeechSynthesis() {
       return new Promise((resolve) => {
         const utterance = new SpeechSynthesisUtterance(line)
         utterance.lang = navigator.language || 'en-US'
-        utterance.rate = 1
+        utterance.rate = rate
         utterance.pitch = 1
+
+        const chosen = voiceURI
+          ? window.speechSynthesis.getVoices().find((voice) => voice.voiceURI === voiceURI)
+          : null
+        if (chosen) utterance.voice = chosen
 
         let settled = false
         const finish = (value) => {
@@ -283,8 +305,8 @@ export function useSpeechSynthesis() {
         setTimeout(() => finish(true), Math.min(20_000, 2_000 + line.length * 120))
       })
     },
-    [supported],
+    [rate, supported, voiceURI],
   )
 
-  return { supported, speaking, speak, cancel }
+  return { supported, speaking, speak, cancel, voices }
 }

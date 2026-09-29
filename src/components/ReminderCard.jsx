@@ -1,4 +1,3 @@
-import { SNOOZE_MINUTES } from '../constants.js'
 import MicButton from './MicButton.jsx'
 
 /**
@@ -13,6 +12,7 @@ export default function ReminderCard({
   prompt,
   heard,
   listening,
+  snoozeMinutes = 15,
   onYes,
   onSnooze,
   onListen,
@@ -43,7 +43,7 @@ export default function ReminderCard({
           Yes, done
         </button>
         <button type="button" className="btn btn-ghost" onClick={onSnooze}>
-          Snooze {SNOOZE_MINUTES}m
+          Snooze {snoozeMinutes}m
         </button>
 
         <MicButton

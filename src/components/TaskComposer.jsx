@@ -18,7 +18,17 @@ import MicButton from './MicButton.jsx'
  * survives a reload, and is cleared the moment it becomes a real task.
  */
 const TaskComposer = forwardRef(function TaskComposer(
-  { onAdd, onVoice, listening, transcript, voiceError, micSupported, ai },
+  {
+    onAdd,
+    onVoice,
+    listening,
+    transcript,
+    voiceError,
+    micSupported,
+    ai,
+    defaultDueHour = DEFAULT_DUE_HOUR,
+    keywordSuggestions = true,
+  },
   inputRef,
 ) {
   const [value, setValue] = useState(loadDraft)
@@ -61,7 +71,7 @@ const TaskComposer = forwardRef(function TaskComposer(
       clearTimeout(timer)
     }
   }, [value, ai?.status])
-  const parsed = shown.trim() ? parseTaskInput(shown, new Date(), DEFAULT_DUE_HOUR) : null
+  const parsed = shown.trim() ? parseTaskInput(shown, new Date(), defaultDueHour) : null
 
   // Only trust the model's answer while it still describes what is in the box.
   const aiTag = aiResult && aiResult.text === value.trim() ? aiResult.tag : null
@@ -76,7 +86,7 @@ const TaskComposer = forwardRef(function TaskComposer(
       return
     }
 
-    onAdd({ ...parseTaskInput(text, new Date(), DEFAULT_DUE_HOUR), aiTag })
+    onAdd({ ...parseTaskInput(text, new Date(), defaultDueHour), aiTag })
     updateValue('')
     setAiResult(null)
     inputRef?.current?.focus()
@@ -120,7 +130,7 @@ const TaskComposer = forwardRef(function TaskComposer(
         (parsed.dueAt ||
           parsed.priority !== 'medium' ||
           parsed.tags.length > 0 ||
-          parsed.suggestedTag ||
+          (keywordSuggestions && parsed.suggestedTag) ||
           aiTag) ? (
           <p className="parse-preview" aria-live="polite">
             <span className="parse-label">Understood:</span>
@@ -141,7 +151,7 @@ const TaskComposer = forwardRef(function TaskComposer(
                 #{aiTag}
                 <span className="chip-note">ai</span>
               </span>
-            ) : parsed.suggestedTag ? (
+            ) : keywordSuggestions && parsed.suggestedTag ? (
               <span className="chip chip-suggested" title="Guessed from the words — edit it later">
                 #{parsed.suggestedTag}
                 <span className="chip-note">suggested</span>

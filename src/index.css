@@ -2076,3 +2076,226 @@ kbd {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ========================================================================== */
+/* Settings                                                                   */
+/* ========================================================================== */
+
+.settings-modal {
+  width: min(620px, 100%);
+  padding: 0;
+}
+
+.settings-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+
+.settings-section {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-section:last-child {
+  border-bottom: 0;
+}
+
+.settings-section > h3 {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.setting-row:last-child {
+  border-bottom: 0;
+}
+
+.setting-label {
+  min-width: 0;
+}
+
+.setting-label label {
+  font-size: 14px;
+}
+
+.setting-control {
+  flex: none;
+}
+
+.setting-control select,
+.setting-control input[type='range'] {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 13.5px;
+}
+
+.setting-control select {
+  max-width: 200px;
+}
+
+.setting-control input[type='range'] {
+  padding: 0;
+  border: 0;
+  width: 120px;
+  accent-color: var(--accent);
+}
+
+.setting-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-value {
+  min-width: 34px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A switch, rather than a checkbox, because these all take effect at once. */
+.toggle {
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  display: block;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.toggle-knob {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.15s ease;
+}
+
+.toggle.is-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.toggle.is-on .toggle-knob {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.status-pill.is-granted,
+.status-pill.is-ready {
+  border-color: rgba(57, 255, 136, 0.4);
+  color: var(--accent);
+}
+
+.status-pill.is-denied {
+  border-color: rgba(255, 90, 90, 0.4);
+  color: var(--priority-high);
+}
+
+.settings-note {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.settings-note .progress-track {
+  width: 100%;
+}
+
+.settings-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  list-style: decimal;
+  font-size: 12.5px;
+}
+
+.settings-steps code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--card-raised);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--text);
+  user-select: all;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.settings-actions .btn.is-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.sidebar-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 620px) {
+  .setting-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .settings-modal {
+    max-height: 92vh;
+  }
+}
