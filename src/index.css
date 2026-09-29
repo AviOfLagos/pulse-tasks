@@ -826,6 +826,13 @@ kbd {
   letter-spacing: 0.06em;
 }
 
+.ai-offer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .parse-warning {
   color: var(--priority-medium);
   font-size: 12.5px;
