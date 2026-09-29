@@ -36,6 +36,11 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
   renames; a rename can carry a new time and priority too. The task is matched by title, loosely —
   and if the match is not good enough, nothing happens, because acting on the wrong task is worse
   than admitting the name was not caught.
+- **The mic stays open while you think.** Chrome ends a recognition session at the first pause —
+  including the pause *before* you start talking, which made the mic look like it closed on its
+  own. A listening window here is a deadline, not a single recogniser: when the browser ends one
+  early, another starts, until the deadline passes, you stop it, or a phrase has landed and gone
+  quiet. Sessions that die instantly three times in a row stop rather than spin, and say so.
 - **Always a fallback.** The same question appears as an on-screen card with **Yes, done** and
   **Snooze 15m** buttons. It stays up until answered, so the feature still works when speech is
   unsupported (Firefox), the mic is denied, or the reply was not understood.
@@ -68,13 +73,16 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
 - **Three tabs** — *Today* (due today, overdue, or undated), *Upcoming* (a later day), *Done*.
   Each has a live count. Search covers titles, notes and tags.
 - **Needs attention** — overdue tasks first, then anything due within seven days.
-- **Progress ring** — completion percentage with `progressbar` semantics.
 - **Every row** — checkbox, title, due-time chip, priority dot (red / amber / green). Click the
   title (or the ✎) to edit title, due date/time, priority and notes inline; Enter or **Save**
   commits, Escape or **Cancel** discards, and focus returns to the Edit button.
-- **Month calendar** — days with tasks get a neon dot, days with overdue work get a red one, and
-  today keeps a green ring whichever month you browse. Click a day to filter the list to it
+- **Two-week calendar** — this week and next, rather than a six-row month most of which you are
+  never going to touch. Days with tasks get a neon dot, days with overdue work get a red one, and
+  today keeps a green ring wherever you page to. Click a day to filter the list to it
   (*Showing: Tue 29*, with a ✕ to clear); new tasks then default to that day.
+- **Top nav** — the completion bar, a **+ New** button that drops you in the composer, and a bell
+  badged with how many tasks are due. Pressing the bell raises the reminder for the next one, so a
+  due task never waits on the 30-second sweep and voice can stay switched off.
 - **Undo toast (5s)** after a delete or a completion, including completions made by voice.
 - **Keyboard**: <kbd>⌘K</kbd> quick switcher · <kbd>N</kbd> new task · <kbd>/</kbd> search ·
   <kbd>Space</kbd> complete the focused row · <kbd>Esc</kbd> stop listening / dismiss.
@@ -100,7 +108,7 @@ a workspace of list + side rail. The workspace is the part that reflows.
 
 | Width | Columns |
 | --- | --- |
-| ≥ 1500px | **four** — navbar, list, calendar + progress, needs attention (the rail splits) |
+| ≥ 1500px | **four** — navbar, list, calendar, needs attention (the rail splits) |
 | 1180–1500px | three — navbar, list, rail |
 | 980–1180px | three, with a narrower navbar |
 | 760–980px | two — the navbar folds into a row of tag chips above the content |
@@ -143,13 +151,13 @@ src/
   constants.js             priorities, tabs, timings, storage keys
   components/
     Sidebar.jsx            left navbar: wordmark + tag tree
-    AppHeader.jsx          top bar: clock + reminder switch
+    AppHeader.jsx          top nav: clock, progress, + New, bell, reminder switch
+    ProgressBar.jsx        completion bar for the top nav
     TaskComposer.jsx       big input + mic + Add, with a live parse preview
     MicButton.jsx          shared mic control with the listening pulse
-    ProgressRing.jsx       completion ring and counts
     TagTree.jsx            collapsible nested-tag rail
     QuickSwitcher.jsx      ⌘K jump-to-task palette
-    MiniCalendar.jsx       month grid, task dots, day filter
+    MiniCalendar.jsx       two-week strip, task dots, day filter
     ConfirmCard.jsx        read-back card for a dictated task
     NeedsAttention.jsx     overdue + this week, at a glance
     Tabs.jsx               Today / Upcoming / Done
@@ -161,7 +169,7 @@ src/
     EmptyState.jsx         context-aware placeholder
   hooks/
     useTodos.js            useReducer + persist on change
-    useSpeech.js           SpeechRecognition / speechSynthesis wrappers
+    useSpeech.js           SpeechRecognition (restarts until its deadline) / speechSynthesis
     useVoicePermissions.js mic + notification permission, asked once
     useReminders.js        the 30-second due sweep and the ask/listen cycle
     useShortcuts.js        N / · Space, ignored while typing

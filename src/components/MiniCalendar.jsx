@@ -3,54 +3,72 @@ import { useMemo, useState } from 'react'
 import { startOfDay, toISODateString } from '../utils/date.js'
 
 /**
- * Compact month calendar.
+ * A two-week calendar strip.
+ *
+ * Not a month: a month grid is six rows tall and most of it is days you are
+ * not going to touch. Two weeks covers "this week and next", which is the span
+ * a todo list actually plans over, and leaves the rail short enough that the
+ * cards below it stay on screen.
  *
  * A day with tasks gets a dot — neon when the work is still ahead, red when
- * something on that day is overdue. Clicking a day filters the list to it;
- * clicking it again clears the filter. Today keeps a ring whatever month you
- * browse to, so you never lose your place.
+ * something that day is overdue. Clicking a day filters the list to it;
+ * clicking it again clears the filter. Today keeps a ring wherever you page to.
  */
 
 const WEEKDAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+const DAYS_SHOWN = 14
 
-/** The six-week grid for a month, starting on Monday. */
-function monthGrid(year, month) {
-  const first = new Date(year, month, 1)
+/** The Monday on or before `date`. */
+function weekStart(date) {
+  const monday = startOfDay(date)
   // getDay() is Sunday-based; shift so Monday is 0.
-  const lead = (first.getDay() + 6) % 7
-
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(year, month, index - lead + 1)
-    return { date, key: toISODateString(date), inMonth: date.getMonth() === month }
-  })
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
+  return monday
 }
 
 export default function MiniCalendar({ dayIndex, selectedDay, onSelectDay, now }) {
-  const [cursor, setCursor] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1))
+  const [cursor, setCursor] = useState(() => weekStart(now))
 
   const todayKey = toISODateString(now)
-  const grid = useMemo(
-    () => monthGrid(cursor.getFullYear(), cursor.getMonth()),
+
+  const days = useMemo(
+    () =>
+      Array.from({ length: DAYS_SHOWN }, (_, index) => {
+        const date = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + index)
+        return { date, key: toISODateString(date) }
+      }),
     [cursor],
   )
 
-  const shiftMonth = (delta) =>
-    setCursor((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1))
+  const shiftWeeks = (weeks) =>
+    setCursor(
+      (current) =>
+        new Date(current.getFullYear(), current.getMonth(), current.getDate() + weeks * 7),
+    )
 
-  const monthLabel = cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  // "September 2026", or "Sep – Oct 2026" when the fortnight straddles a month.
+  const first = days[0].date
+  const last = days[DAYS_SHOWN - 1].date
+  const rangeLabel =
+    first.getMonth() === last.getMonth()
+      ? first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+      : `${first.toLocaleDateString(undefined, { month: 'short' })} – ${last.toLocaleDateString(
+          undefined,
+          { month: 'short', year: 'numeric' },
+        )}`
 
   return (
     <section className="card calendar-card" aria-label="Calendar">
       <div className="calendar-head">
-        <h2 className="card-title calendar-month">{monthLabel}</h2>
+        <h2 className="card-title calendar-month">{rangeLabel}</h2>
 
         <div className="calendar-nav">
           <button
             type="button"
             className="icon-btn"
-            onClick={() => shiftMonth(-1)}
-            aria-label="Previous month"
-            title="Previous month"
+            onClick={() => shiftWeeks(-2)}
+            aria-label="Previous two weeks"
+            title="Previous two weeks"
           >
             ‹
           </button>
@@ -58,20 +76,20 @@ export default function MiniCalendar({ dayIndex, selectedDay, onSelectDay, now }
             type="button"
             className="icon-btn"
             onClick={() => {
-              setCursor(new Date(now.getFullYear(), now.getMonth(), 1))
+              setCursor(weekStart(now))
               onSelectDay(null)
             }}
-            aria-label="Back to today"
-            title="Today"
+            aria-label="Back to this week"
+            title="This week"
           >
             ·
           </button>
           <button
             type="button"
             className="icon-btn"
-            onClick={() => shiftMonth(1)}
-            aria-label="Next month"
-            title="Next month"
+            onClick={() => shiftWeeks(2)}
+            aria-label="Next two weeks"
+            title="Next two weeks"
           >
             ›
           </button>
@@ -85,14 +103,14 @@ export default function MiniCalendar({ dayIndex, selectedDay, onSelectDay, now }
       </div>
 
       <div className="calendar-grid" role="grid">
-        {grid.map(({ date, key, inMonth }) => {
+        {days.map(({ date, key }) => {
           const entry = dayIndex.get(key)
           const open = entry ? entry.total - entry.done : 0
           const classes = [
             'calendar-day',
-            inMonth ? '' : 'is-outside',
             key === todayKey ? 'is-today' : '',
             key === selectedDay ? 'is-selected' : '',
+            date.getDate() === 1 ? 'is-month-start' : '',
           ]
             .filter(Boolean)
             .join(' ')
@@ -134,7 +152,7 @@ export default function MiniCalendar({ dayIndex, selectedDay, onSelectDay, now }
   )
 }
 
-/** Exported for the "Showing: Mon 29" chip. */
+/** Exported for the "Showing: Tue 29" chip. */
 export function formatDayLabel(dayKey, locale = undefined) {
   if (!dayKey) return ''
 
