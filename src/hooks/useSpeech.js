@@ -16,59 +16,58 @@ function getRecognitionClass() {
 }
 
 /**
- * One-shot dictation.
+ * Dictation.
  *
- * `listen()` resolves with the transcript, or null when nothing was heard
- * (no speech, denied mic, timeout, unsupported browser). A fresh recognition
- * object is created per call: reusing one across sessions is where Chrome's
- * "already started" and stuck-listening bugs come from.
+ * `listen()` resolves with the transcript, or null when nothing was heard.
+ *
+ * The important part is that it *keeps* listening. Chrome ends a recognition
+ * session on the first pause — including the pause before you have started
+ * talking — which made the mic look like it closed the moment it opened. So a
+ * session here is a deadline, not a single recogniser: when the browser ends
+ * one early we start another until the deadline passes, the user stops it, or
+ * a real phrase has landed and gone quiet.
+ *
+ * A fresh recogniser per attempt is deliberate: reusing one across sessions is
+ * where Chrome's "already started" and stuck-listening bugs come from.
  */
+
+/** How long to wait after a final phrase before assuming the user is done. */
+const SILENCE_AFTER_SPEECH_MS = 1200
+
+/** A restart this soon after starting means the mic never really opened. */
+const FAILED_START_MS = 400
+
 export function useSpeechRecognition() {
   const [listening, setListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [error, setError] = useState('')
 
-  const activeRef = useRef(null)
-  const timerRef = useRef(null)
+  const sessionRef = useRef(null)
 
   const supported = useMemo(() => getRecognitionClass() !== null, [])
 
-  const teardown = useCallback(() => {
-    clearTimeout(timerRef.current)
-    timerRef.current = null
-
-    const recognition = activeRef.current
-    activeRef.current = null
-    if (recognition) {
-      recognition.onresult = null
-      recognition.onerror = null
-      recognition.onend = null
-      try {
-        recognition.abort()
-      } catch {
-        /* already stopped */
-      }
-    }
-
-    setListening(false)
+  /** Ends whatever is running right now, resolving it with what it heard. */
+  const abandon = useCallback(() => {
+    sessionRef.current?.settle(sessionRef.current.finalText.trim() || null)
   }, [])
 
-  useEffect(() => teardown, [teardown])
+  useEffect(() => abandon, [abandon])
 
   const stop = useCallback(() => {
-    const recognition = activeRef.current
-    if (!recognition) return
+    const session = sessionRef.current
+    if (!session) return
 
+    session.stopping = true
     try {
       // `stop` (unlike `abort`) still delivers whatever was heard so far.
-      recognition.stop()
+      session.recognition?.stop()
     } catch {
-      teardown()
+      session.settle(session.finalText.trim() || null)
     }
-  }, [teardown])
+  }, [])
 
   const listen = useCallback(
-    (timeoutMs = 10_000) => {
+    (timeoutMs = 15_000) => {
       const Recognition = getRecognitionClass()
       if (!Recognition) {
         setError('This browser has no speech recognition.')
@@ -76,79 +75,159 @@ export function useSpeechRecognition() {
       }
 
       // Never run two sessions at once.
-      teardown()
+      abandon()
 
       setError('')
       setTranscript('')
       setListening(true)
 
       return new Promise((resolve) => {
-        const recognition = new Recognition()
-        activeRef.current = recognition
+        const session = {
+          finalText: '',
+          settled: false,
+          stopping: false,
+          failedStarts: 0,
+          deadline: Date.now() + timeoutMs,
+          recognition: null,
+          timers: [],
+        }
 
-        recognition.lang = navigator.language || 'en-US'
-        recognition.continuous = false
-        recognition.interimResults = true
-        recognition.maxAlternatives = 1
+        const clearTimers = () => {
+          session.timers.forEach(clearTimeout)
+          session.timers = []
+        }
 
-        let finalText = ''
-        let settled = false
+        session.settle = (value) => {
+          if (session.settled) return
+          session.settled = true
 
-        const finish = (value) => {
-          if (settled) return
-          settled = true
-          teardown()
+          clearTimers()
+
+          const recognition = session.recognition
+          session.recognition = null
+          if (recognition) {
+            recognition.onresult = null
+            recognition.onerror = null
+            recognition.onend = null
+            try {
+              recognition.abort()
+            } catch {
+              /* already stopped */
+            }
+          }
+
+          if (sessionRef.current === session) sessionRef.current = null
+          setListening(false)
           resolve(value)
         }
 
-        recognition.onresult = (event) => {
-          let interim = ''
+        sessionRef.current = session
 
-          for (let i = event.resultIndex; i < event.results.length; i += 1) {
-            const result = event.results[i]
-            if (result.isFinal) finalText += result[0].transcript
-            else interim += result[0].transcript
-          }
-
-          setTranscript((finalText + interim).trim())
-        }
-
-        recognition.onerror = (event) => {
-          const code = event.error
-          if (code === 'not-allowed' || code === 'service-not-allowed') {
-            setError('Microphone access is blocked. Enable it in your browser settings.')
-          } else if (code === 'no-speech') {
-            setError('Did not catch that.')
-          } else if (code !== 'aborted') {
-            setError('Speech recognition failed. Try typing instead.')
-          }
-
-          finish(finalText.trim() || null)
-        }
-
-        recognition.onend = () => finish(finalText.trim() || null)
-
-        try {
-          recognition.start()
-        } catch {
-          setError('Could not start the microphone.')
-          finish(null)
-          return
-        }
-
-        timerRef.current = setTimeout(() => {
+        const finish = () => {
+          session.stopping = true
           try {
-            recognition.stop()
+            session.recognition?.stop()
           } catch {
-            finish(finalText.trim() || null)
+            session.settle(session.finalText.trim() || null)
           }
-        }, timeoutMs)
+        }
+
+        const start = () => {
+          const recognition = new Recognition()
+          session.recognition = recognition
+          const startedAt = Date.now()
+
+          recognition.lang = navigator.language || 'en-US'
+          // Continuous, so a thinking pause does not end the session.
+          recognition.continuous = true
+          recognition.interimResults = true
+          recognition.maxAlternatives = 1
+
+          recognition.onresult = (event) => {
+            let interim = ''
+
+            for (let i = event.resultIndex; i < event.results.length; i += 1) {
+              const result = event.results[i]
+              if (result.isFinal) session.finalText += result[0].transcript
+              else interim += result[0].transcript
+            }
+
+            setTranscript((session.finalText + interim).trim())
+            session.failedStarts = 0
+
+            // A complete phrase, then quiet: that is the end of the sentence.
+            if (session.finalText.trim()) {
+              clearTimers()
+              session.timers.push(setTimeout(finish, SILENCE_AFTER_SPEECH_MS))
+            }
+          }
+
+          recognition.onerror = (event) => {
+            const code = event.error
+
+            if (code === 'not-allowed' || code === 'service-not-allowed') {
+              setError('Microphone access is blocked. Enable it in your browser settings.')
+              session.settle(null)
+              return
+            }
+
+            if (code === 'audio-capture') {
+              setError('No microphone was found.')
+              session.settle(null)
+              return
+            }
+
+            // 'no-speech', 'network' and 'aborted' are all survivable — let
+            // `onend` decide whether there is still time to try again.
+          }
+
+          recognition.onend = () => {
+            if (session.settled) return
+
+            if (session.stopping) {
+              session.settle(session.finalText.trim() || null)
+              return
+            }
+
+            // A session that ended almost immediately never really opened. A
+            // few of those in a row means restarting will not help.
+            if (Date.now() - startedAt < FAILED_START_MS) session.failedStarts += 1
+
+            if (session.failedStarts >= 3) {
+              setError('The microphone kept closing. Check it is not in use elsewhere.')
+              session.settle(session.finalText.trim() || null)
+              return
+            }
+
+            if (Date.now() < session.deadline) {
+              try {
+                start()
+                return
+              } catch {
+                /* fall through to settling */
+              }
+            }
+
+            if (!session.finalText.trim()) setError('Did not catch that.')
+            session.settle(session.finalText.trim() || null)
+          }
+
+          try {
+            recognition.start()
+          } catch {
+            setError('Could not start the microphone.')
+            session.settle(null)
+          }
+        }
+
+        session.timers.push(setTimeout(finish, timeoutMs))
+        start()
       })
     },
-    [teardown],
+    [abandon],
   )
 
-  return { supported, listening, transcript, error, listen, stop, reset: teardown }
+  return { supported, listening, transcript, error, listen, stop, reset: abandon }
 }
 
 /**

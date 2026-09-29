@@ -5,9 +5,8 @@ import ConfirmCard from './components/ConfirmCard.jsx'
 import MiniCalendar from './components/MiniCalendar.jsx'
 import NeedsAttention from './components/NeedsAttention.jsx'
 import PermissionDialog from './components/PermissionDialog.jsx'
-import ProgressRing from './components/ProgressRing.jsx'
-import Sidebar from './components/Sidebar.jsx'
 import QuickSwitcher from './components/QuickSwitcher.jsx'
+import Sidebar from './components/Sidebar.jsx'
 import ReminderCard from './components/ReminderCard.jsx'
 import TaskComposer from './components/TaskComposer.jsx'
 import TaskList from './components/TaskList.jsx'
@@ -15,6 +14,7 @@ import UndoToast from './components/UndoToast.jsx'
 import {
   CLOCK_TICK_MS,
   DEFAULT_DUE_HOUR,
+  DICTATION_MS,
   REPLY_LISTEN_MS,
   SNOOZE_MINUTES,
   UNDO_TIMEOUT,
@@ -37,6 +37,7 @@ import {
   filterByDay,
   filterTodos,
   getDayIndex,
+  getDueReminders,
   getStats,
   getUrgentTodos,
   matchesTab,
@@ -67,6 +68,9 @@ export default function App() {
   const [remindersOn, setRemindersOn] = useState(true)
   // Which surface the shared microphone is currently feeding.
   const [listenTarget, setListenTarget] = useState(null)
+  // Who *last* used the mic. `listenTarget` clears when listening stops, but
+  // an error has to outlive the session that produced it to be readable.
+  const [lastListenTarget, setLastListenTarget] = useState(null)
   // A day picked in the calendar, as `YYYY-MM-DD`, or null for "all days".
   const [selectedDay, setSelectedDay] = useState(null)
   // A dictated task waiting to be confirmed: { id, draft, heard }.
@@ -107,6 +111,11 @@ export default function App() {
   const stats = useMemo(() => getStats(todos, now), [todos, now])
   const dayIndex = useMemo(() => getDayIndex(todos, now), [todos, now])
   const tagTree = useMemo(() => buildTagTree(todos), [todos])
+  // What the bell counts: unfinished work whose moment has passed.
+  const dueCount = useMemo(
+    () => todos.filter((todo) => !todo.completed && todo.dueAt && new Date(todo.dueAt) <= now).length,
+    [todos, now],
+  )
 
   const announce = useCallback((message) => setAnnouncement(message), [])
 
@@ -274,6 +283,7 @@ export default function App() {
   const listenAs = useCallback(
     (target, timeoutMs) => {
       setListenTarget(target)
+      setLastListenTarget(target)
       return recognition.listen(timeoutMs).finally(() => setListenTarget(null))
     },
     [recognition],
@@ -328,7 +338,7 @@ export default function App() {
     pendingVoice.current = 'composer'
     if (!permissions.ensure()) return
 
-    const transcript = await listenAs('composer', 10_000)
+    const transcript = await listenAs('composer', DICTATION_MS)
     if (!transcript) return
 
     handleTranscript(transcript)
@@ -514,6 +524,31 @@ export default function App() {
 
   reminderRef.current = reminder
 
+  /**
+   * The bell. Raising the prompt by hand means a due task never waits on the
+   * next 30-second sweep, and it is the way in when spoken reminders are off.
+   */
+  const handleShowDue = useCallback(() => {
+    if (reminderRef.current?.prompt) return
+
+    const [next] = getDueReminders(todos)
+    if (!next) {
+      // Everything already asked about still counts as due.
+      const [asked] = todos.filter(
+        (todo) => !todo.completed && todo.dueAt && new Date(todo.dueAt) <= new Date(),
+      )
+
+      if (!asked) {
+        announce('Nothing is due.')
+        return
+      }
+
+      dispatch({ type: 'update', payload: { id: asked.id, changes: { dueAt: asked.dueAt } } })
+    }
+
+    reminderRef.current?.askNow()
+  }, [announce, dispatch, todos])
+
   /* ---------------------------------------------------------------- *
    * Keyboard shortcuts: N new, / search, Space complete
    * ---------------------------------------------------------------- */
@@ -554,6 +589,10 @@ export default function App() {
       <div className="content">
         <AppHeader
           now={now}
+          stats={stats}
+          dueCount={dueCount}
+          onNewTask={() => composerRef.current?.focus()}
+          onShowDue={handleShowDue}
           remindersOn={remindersOn}
           onToggleReminders={() => {
             const next = !remindersOn
@@ -573,7 +612,7 @@ export default function App() {
           onVoice={handleVoiceAdd}
           listening={listenTarget === 'composer'}
           transcript={recognition.transcript}
-          voiceError={listenTarget === 'composer' ? recognition.error : ''}
+          voiceError={lastListenTarget === 'composer' ? recognition.error : ''}
           micSupported={recognition.supported}
         />
 
@@ -611,7 +650,6 @@ export default function App() {
               onSelectDay={setSelectedDay}
             />
             <NeedsAttention todos={urgentTodos} now={now} onComplete={handleComplete} />
-            <ProgressRing stats={stats} />
           </aside>
         </div>
 

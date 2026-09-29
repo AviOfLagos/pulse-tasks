@@ -218,16 +218,20 @@ kbd {
 .app-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--gap);
+  gap: var(--space-2);
   flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
 }
 
 .header-clock {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 14px;
+  flex: none;
+  font-size: 13.5px;
   color: var(--muted);
 }
 
@@ -396,77 +400,95 @@ kbd {
 
 
 /* ========================================================================== */
-/* Progress ring                                                              */
+/* Progress strip (top nav)                                                   */
 /* ========================================================================== */
 
-.progress-body {
+.progress-strip {
+  flex: 1 1 200px;
+  min-width: 140px;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 12px;
 }
 
-.ring-wrap {
-  position: relative;
-  width: 96px;
-  height: 96px;
-  flex: none;
+.progress-track {
+  flex: 1;
+  height: 6px;
+  min-width: 80px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
 }
 
-.ring {
-  width: 100%;
+.progress-fill {
+  display: block;
   height: 100%;
-  transform: rotate(-90deg);
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.ring-track {
-  fill: none;
-  stroke: var(--border);
-  stroke-width: 7;
-}
-
-.ring-value {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 7;
-  stroke-linecap: round;
-  transition: stroke-dashoffset 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.ring-wrap.is-complete .ring-value {
-  filter: drop-shadow(0 0 6px var(--accent-soft));
-}
-
-.ring-label {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}
-
-.progress-counts {
+.progress-legend {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: baseline;
+  gap: 8px;
+  flex: none;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
-.progress-counts > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  min-width: 110px;
-}
-
-.progress-counts dt {
+.progress-detail {
   color: var(--muted);
 }
 
-.progress-counts dd {
+/* ========================================================================== */
+/* Notification bell                                                          */
+/* ========================================================================== */
+
+.bell-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.bell-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.bell-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.bell-btn.has-due {
+  color: var(--text);
+}
+
+.bell-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--priority-high);
+  color: #2a0505;
+  font-size: 10px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
 }
 
 /* ========================================================================== */
@@ -1216,7 +1238,9 @@ kbd {
 
 .calendar-day {
   position: relative;
-  aspect-ratio: 1;
+  min-height: 38px;
+  padding: 4px 0 9px;
+  border-left: 1px solid transparent;
   display: grid;
   place-items: center;
   border: 1px solid transparent;
@@ -1233,9 +1257,10 @@ kbd {
   background: var(--card-raised);
 }
 
-.calendar-day.is-outside {
-  color: var(--muted);
-  opacity: 0.45;
+/* The 1st of a month gets a hairline, so a fortnight that straddles two
+   months still reads as two months. */
+.calendar-day.is-month-start {
+  border-left-color: var(--border-strong);
 }
 
 /* Today keeps its ring in every month you browse to. */
@@ -1504,31 +1529,17 @@ kbd {
 /* Responsive                                                                 */
 /* ========================================================================== */
 
-/* Wide: the side rail splits, so the page reads as four columns.
-   Placement is explicit rather than left to auto-flow — "needs attention" is
-   much taller than the calendar, and flowing by row left a hole where the
-   progress card should have been. */
+/* Wide: the side rail splits, so the page reads as four columns —
+   navbar, list, calendar, needs attention. */
 @media (min-width: 1500px) {
   .workspace {
-    grid-template-columns: minmax(0, 1fr) minmax(560px, 0.95fr);
+    grid-template-columns: minmax(0, 1fr) minmax(520px, 0.9fr);
   }
 
   .side-col {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-auto-rows: min-content;
     align-items: start;
-  }
-
-  .side-col > .calendar-card {
-    grid-area: 1 / 1;
-  }
-
-  .side-col > .progress-card {
-    grid-area: 2 / 1;
-  }
-
-  .side-col > .attention-card {
-    grid-area: 1 / 2 / span 2 / 3;
   }
 }
 
@@ -1671,7 +1682,33 @@ kbd {
   }
 
   .app-header {
-    align-items: flex-start;
+    align-items: center;
+  }
+
+  /* Drop the wordy half of the legend and let the bar shrink, so it sits
+     beside the clock instead of taking a row of its own. */
+  .progress-detail {
+    display: none;
+  }
+
+  .progress-strip {
+    flex: 1 1 90px;
+    min-width: 90px;
+    gap: 8px;
+  }
+
+  .progress-track {
+    min-width: 48px;
+  }
+
+  .header-clock {
+    font-size: 12.5px;
+    gap: 6px;
+  }
+
+  .header-actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
   }
 
   .tabs {

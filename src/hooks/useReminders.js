@@ -143,5 +143,13 @@ export function useReminders({
     if (hasDueWork) sweepRef.current?.()
   }, [hasDueWork])
 
-  return { prompt, heard, listeningForReply, resolve, dismiss: clearPrompt }
+  return {
+    prompt,
+    heard,
+    listeningForReply,
+    resolve,
+    dismiss: clearPrompt,
+    /** Ask about the next due task right now — what the nav's bell does. */
+    askNow: () => sweepRef.current?.(),
+  }
 }

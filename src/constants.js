@@ -49,8 +49,17 @@ export const SNOOZE_MINUTES = 15
 /** Hour (local) a bare date like "tomorrow" defaults to when no time is said. */
 export const DEFAULT_DUE_HOUR = 9
 
-/** How long we listen for a spoken reply before falling back to the card (ms). */
-export const REPLY_LISTEN_MS = 12_000
+/**
+ * How long a listening window stays open (ms).
+ *
+ * Generous on purpose: the browser ends a recognition session on the first
+ * pause, including the one before you start talking, and the hook restarts it
+ * until this deadline. Too short and the mic appears to close on its own.
+ */
+export const REPLY_LISTEN_MS = 15_000
+
+/** How long the composer mic stays open when adding a task by voice (ms). */
+export const DICTATION_MS = 20_000
 
 /** localStorage key for "the user has seen the voice explainer". */
 export const VOICE_CONSENT_KEY = 'todo-webapp:voice-consent'
