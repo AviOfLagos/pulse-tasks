@@ -146,7 +146,14 @@ export default function App() {
         dueAt: input.dueAt ?? defaultDueAt(),
         // Adding a task inside a tag branch files it there, the way adding a
         // note inside a folder does.
-        tags: input.tags?.length ? input.tags : selectedTag ? [selectedTag] : [],
+        // Explicit beats the branch you are in, which beats the guess.
+        tags: input.tags?.length
+          ? input.tags
+          : selectedTag
+            ? [selectedTag]
+            : input.suggestedTag
+              ? [input.suggestedTag]
+              : [],
       }
       dispatch({ type: 'add', payload })
       announce(
@@ -321,7 +328,13 @@ export default function App() {
           title: parsed.title,
           dueAt: parsed.dueAt ?? defaultDueAt(),
           priority: parsed.priority,
-          tags: parsed.tags.length ? parsed.tags : selectedTag ? [selectedTag] : [],
+          tags: parsed.tags.length
+            ? parsed.tags
+            : selectedTag
+              ? [selectedTag]
+              : parsed.suggestedTag
+                ? [parsed.suggestedTag]
+                : [],
         },
       })
     },

@@ -195,7 +195,14 @@ export function formatDueChip(value, reference = new Date(), locale = undefined)
     return `${date.toLocaleDateString(locale, { weekday: 'short' })} ${time}`
   }
 
-  const day = date.toLocaleDateString(locale, { day: 'numeric', month: 'short' })
+  // The year only earns its place when it is not this one.
+  const sameYear = date.getFullYear() === reference.getFullYear()
+  const day = date.toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
+
   return `${day}, ${time}`
 }
 

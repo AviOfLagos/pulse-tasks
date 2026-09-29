@@ -18,9 +18,10 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
   Every field on the card is editable, and the buttons (**Add ✓ / Edit ✎ / Cancel ✕**) do the same
   job when you would rather not talk. Dictation is a guess twice over — what was heard, then what
   the parser made of it — so nothing reaches the list unconfirmed. The parser understands times
-  (`5pm`, `5:30 pm`, `17:00`, `at 6`), days (`today`, `tonight`, `tomorrow`, `friday`, `next week`),
-  relative offsets (`in 30 minutes`, `in 2 hours`, `in 3 days`), parts of the day (`morning`,
-  `evening`, `midnight`) and urgency words (`urgent`, `asap`, `someday`). Typed input goes through
+  (`5pm`, `5:30 pm`, `17:00`, `at 6`), days (`today`, `tonight`, `tomorrow`, `friday`, `next week`,
+  `next month`), calendar dates (`12 Oct`, `3rd of April 2027`, `October 12`, `on the 3rd`,
+  `12/10/2026`, `2026-10-12`), relative offsets (`in 30 minutes`, `in 2 hours`, `in 3 days`), parts
+  of the day (`morning`, `evening`, `midnight`) and urgency words (`urgent`, `asap`, `someday`). Typed input goes through
   exactly the same parser, and a live preview shows what was understood before you press **Add**.
 - **Spoken due reminders.** Every 30 seconds the app looks for a task that is due, unfinished and
   not yet asked about. It says *"It's 5:00 PM. Have you water the plants?"*, then listens:
@@ -62,6 +63,24 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
   filter that could be hiding it, moves to its tab and focuses the row. A query that matches
   nothing still offers to create it.
 
+### Reading a plain instruction
+
+Type or say a sentence; the parser pulls out what it can and shows you before anything is created.
+
+- **Dates that do not exist are refused, not rounded.** "launch 30th of Feb 3030" leaves the due
+  date empty, keeps the words in the title and says *“30th of feb 3030” is not a real date* —
+  because `new Date(3030, 1, 30)` quietly becomes 2 March, and a plausible wrong date is worse than
+  no date. A year in the past with no year given rolls forward: in September, "3 March" means next
+  year.
+- **A tag is guessed from the words.** "send the invoice" suggests `work/clients`, "book the
+  dentist" suggests `health`, "water the plants" suggests `home/garden`. It is a keyword table, not
+  a model: it runs offline on every keystroke and, more importantly, it is predictable. A wrong
+  guess you can see coming is a small annoyance; a clever one you cannot is a filing system you
+  stop trusting.
+- **The guess never wins over a decision.** An explicit `#tag` beats it, and so does the tag branch
+  you are working in. It is shown as a dashed *suggested* chip before you commit, and matching is
+  whole-word, so "app" does not fire inside "apparel".
+
 ### Tasks
 
 - **One big input** — type or dictate, press Enter or **Add**. Whatever is half-typed in it
@@ -80,7 +99,8 @@ Voice uses the **Web Speech API** built into the browser, so there is nothing to
   never going to touch. Days with tasks get a neon dot, days with overdue work get a red one, and
   today keeps a green ring wherever you page to. Click a day to filter the list to it
   (*Showing: Tue 29*, with a ✕ to clear); new tasks then default to that day.
-- **Top nav** — the completion bar, a **+ New** button that drops you in the composer, and a bell
+- **Top nav** — sticky, so it is there wherever you have scrolled to: the completion bar, a
+  **+ New** button that drops you in the composer, and a bell
   badged with how many tasks are due. Pressing the bell raises the reminder for the next one, so a
   due task never waits on the 30-second sweep and voice can stay switched off.
 - **Undo toast (5s)** after a delete or a completion, including completions made by voice.
@@ -181,6 +201,7 @@ src/
     date.js                calendar-day helpers + dueAt timestamp helpers
     nlp.js                 parsing for tasks, replies, confirmations, edits and tags
     tags.js                nested-tag paths, matching and the sidebar tree
+    categorise.js          keyword table behind the suggested tag
     rank.js                subsequence ranking for the quick switcher
     todoFilters.js         tabs, sorting, stats, calendar index, urgent + reminder selectors
 ```
@@ -244,6 +265,7 @@ without crashing the UI.
 | `src/state/todoReducer.test.js` | tag normalisation, creation defaults, validation, every action incl. snooze/reschedule/notes, legacy `dueDate` upgrade |
 | `src/state/storage.test.js` | persistence round-trip, corrupted/legacy/invalid payloads, draft round-trip, throwing or missing `localStorage` |
 | `src/state/demoTodos.test.js` | demo data fills every tab, includes an overdue task, unique ids, idempotent re-loading |
+| `src/utils/categorise.test.js` | whole-word matching, specificity, returning nothing rather than guessing |
 | `src/utils/tags.test.js` | path splitting, branch matching (a parent includes its children), tree shape and per-node counts |
 | `src/utils/rank.test.js` | subsequence matching, word-start ranking, tie-breaking, tag search, empty query |
 | `src/utils/date.test.js` | ISO validation (`2026-02-30` rejected), day maths, due labels, overdue rules |

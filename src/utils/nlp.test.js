@@ -275,3 +275,75 @@ describe('nested tags', () => {
     assert.deepEqual(parseTaskInput('', NOW).tags, [])
   })
 })
+
+describe('calendar dates', () => {
+  test('reads "12 Oct" and keeps it out of the title', () => {
+    const result = parseTaskInput('renew the domain 12 Oct', NOW)
+
+    assert.equal(result.title, 'Renew the domain')
+    assert.deepEqual(local(result.dueAt), [2026, 9, 12, 9, 0])
+  })
+
+  test('reads an ordinal with "of"', () => {
+    assert.deepEqual(local(parseTaskInput('ship it 3rd of April 2027', NOW).dueAt), [
+      2027, 3, 3, 9, 0,
+    ])
+  })
+
+  test('reads month-first, and takes a time alongside it', () => {
+    assert.deepEqual(local(parseTaskInput('board meeting October 12 at 2pm', NOW).dueAt), [
+      2026, 9, 12, 14, 0,
+    ])
+  })
+
+  test('rolls a date that has already passed into next year', () => {
+    // NOW is 28 September 2026, so "3 March" means 2027.
+    assert.deepEqual(local(parseTaskInput('file the accounts 3 March', NOW).dueAt), [
+      2027, 2, 3, 9, 0,
+    ])
+  })
+
+  test('reads numeric and ISO dates', () => {
+    assert.deepEqual(local(parseTaskInput('pay it 12/10/2026', NOW).dueAt), [2026, 9, 12, 9, 0])
+    assert.deepEqual(local(parseTaskInput('pay it 2026-10-12', NOW).dueAt), [2026, 9, 12, 9, 0])
+  })
+
+  test('"on the 3rd" means the next time that date comes round', () => {
+    assert.deepEqual(local(parseTaskInput('invoice on the 3rd', NOW).dueAt), [2026, 9, 3, 9, 0])
+  })
+
+  test('"next month" keeps the same day', () => {
+    assert.deepEqual(local(parseTaskInput('review the budget next month', NOW).dueAt), [
+      2026, 9, 28, 9, 0,
+    ])
+  })
+
+  test('refuses a date that does not exist, and says why', () => {
+    const result = parseTaskInput('launch 30th of feb 3030', NOW)
+
+    assert.equal(result.dueAt, null)
+    assert.match(result.warning, /not a real date/)
+    // The words stay in the title rather than vanishing into a wrong date.
+    assert.match(result.title, /30th of feb 3030/i)
+  })
+
+  test('refuses an impossible numeric date too', () => {
+    assert.equal(parseTaskInput('do it 32/13/2026', NOW).dueAt, null)
+  })
+})
+
+describe('suggested tags', () => {
+  test('suggests from the words of the task', () => {
+    assert.equal(parseTaskInput('send the invoice to Vettika', NOW).suggestedTag, 'work/clients')
+    assert.equal(parseTaskInput('book the dentist', NOW).suggestedTag, 'health')
+    assert.equal(parseTaskInput('water the plants', NOW).suggestedTag, 'home/garden')
+  })
+
+  test('never overrides a tag that was typed', () => {
+    assert.equal(parseTaskInput('book flights #trips', NOW).suggestedTag, null)
+  })
+
+  test('suggests nothing when nothing fits', () => {
+    assert.equal(parseTaskInput('think about it', NOW).suggestedTag, null)
+  })
+})
