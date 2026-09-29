@@ -116,8 +116,9 @@ hard-coded or tucked into a corner:
 
 `LanguageModel.availability()` returns `unavailable` on plenty of otherwise capable machines,
 usually because the feature is still behind a flag. To turn it on: `chrome://flags/#prompt-api` →
-*Enabled* (on Chrome 140 and older the flag is `#prompt-api-for-gemini-nano`), relaunch, then
-`chrome://on-device-internals` to watch the model download. The app shows an **Enable on-device AI** button when the browser reports the
+*Enabled* (on Chrome 140 and older the flag is `#prompt-api-for-gemini-nano`), then **relaunch** —
+the flag does nothing until you do. `chrome://on-device-internals` reports the download, on the
+Chrome builds that allow internal pages. The app shows an **Enable on-device AI** button when the browser reports the
 model as downloadable, because the first download is several gigabytes and needs a deliberate
 click rather than a page load.
 

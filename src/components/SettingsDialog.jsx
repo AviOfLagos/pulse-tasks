@@ -247,11 +247,15 @@ export default function SettingsDialog({
                   <strong>Enabled</strong>. On Chrome 140 and older the flag is called{' '}
                   <code>#prompt-api-for-gemini-nano</code>.
                 </li>
-                <li>Relaunch Chrome.</li>
                 <li>
-                  Open <code>chrome://on-device-internals</code> to watch the model download.
+                  Relaunch Chrome — the button at the foot of the flags page, or{' '}
+                  <code>chrome://restart</code>. The flag does nothing until you do.
                 </li>
                 <li>Come back here — this panel will say “Ready to download” or “On”.</li>
+                <li>
+                  Still nothing? <code>chrome://on-device-internals</code> says why, where your
+                  Chrome allows internal pages.
+                </li>
               </ol>
             ) : null}
           </div>
