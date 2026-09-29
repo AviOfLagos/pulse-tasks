@@ -21,6 +21,7 @@ import {
 } from './constants.js'
 import { missingDemoTodos } from './state/demoTodos.js'
 import { useReminders } from './hooks/useReminders.js'
+import { useLocalAI } from './hooks/useLocalAI.js'
 import { useShortcuts } from './hooks/useShortcuts.js'
 import { useSpeechRecognition, useSpeechSynthesis } from './hooks/useSpeech.js'
 import { useTodos } from './hooks/useTodos.js'
@@ -111,6 +112,17 @@ export default function App() {
   const stats = useMemo(() => getStats(todos, now), [todos, now])
   const dayIndex = useMemo(() => getDayIndex(todos, now), [todos, now])
   const tagTree = useMemo(() => buildTagTree(todos), [todos])
+  // Flattened tag paths, so the model reuses the vocabulary already in use
+  // instead of inventing a parallel one.
+  const knownTags = useMemo(() => {
+    const paths = []
+    const walk = (nodes) => nodes.forEach((node) => (paths.push(node.path), walk(node.children)))
+    walk(tagTree)
+    return paths
+  }, [tagTree])
+
+  // Declared after the vocabulary it is given, not with the other hooks.
+  const ai = useLocalAI({ knownTags })
   // What the bell counts: unfinished work whose moment has passed.
   const dueCount = useMemo(
     () => todos.filter((todo) => !todo.completed && todo.dueAt && new Date(todo.dueAt) <= now).length,
@@ -146,14 +158,18 @@ export default function App() {
         dueAt: input.dueAt ?? defaultDueAt(),
         // Adding a task inside a tag branch files it there, the way adding a
         // note inside a folder does.
-        // Explicit beats the branch you are in, which beats the guess.
+        // Explicit beats the branch you are in, which beats the model, which
+        // beats the keyword table. Everything the user decided outranks
+        // everything that was guessed.
         tags: input.tags?.length
           ? input.tags
           : selectedTag
             ? [selectedTag]
-            : input.suggestedTag
-              ? [input.suggestedTag]
-              : [],
+            : input.aiTag
+              ? [input.aiTag]
+              : input.suggestedTag
+                ? [input.suggestedTag]
+                : [],
       }
       dispatch({ type: 'add', payload })
       announce(
@@ -321,6 +337,8 @@ export default function App() {
       const parsed = parseTaskInput(transcript, new Date())
       if (!parsed.title) return
 
+      const decided = parsed.tags.length > 0 || Boolean(selectedTag)
+
       setPending({
         id: 1,
         heard: transcript,
@@ -337,8 +355,23 @@ export default function App() {
                 : [],
         },
       })
+
+      // The card goes up immediately with the keyword guess; if the on-device
+      // model has a better answer it lands a moment later. Waiting for it
+      // first would put a model's latency in front of every dictated task.
+      if (!decided) {
+        ai.suggest(parsed.title).then((result) => {
+          if (!result?.tag) return
+
+          setPending((current) =>
+            current && current.heard === transcript
+              ? { ...current, draft: { ...current.draft, tags: [result.tag] } }
+              : current,
+          )
+        })
+      }
     },
-    [announce, defaultDueAt, dispatch, selectedTag, synthesis, todos],
+    [ai, announce, defaultDueAt, dispatch, selectedTag, synthesis, todos],
   )
 
   const handleVoiceAdd = useCallback(async () => {
@@ -627,6 +660,7 @@ export default function App() {
           transcript={recognition.transcript}
           voiceError={lastListenTarget === 'composer' ? recognition.error : ''}
           micSupported={recognition.supported}
+          ai={ai}
         />
 
         <div className="workspace">

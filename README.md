@@ -77,9 +77,32 @@ Type or say a sentence; the parser pulls out what it can and shows you before an
   a model: it runs offline on every keystroke and, more importantly, it is predictable. A wrong
   guess you can see coming is a small annoyance; a clever one you cannot is a filing system you
   stop trusting.
+- **A local model refines the guess, where there is one.** Chrome ships Gemini Nano on-device
+  (the Prompt API). When it is available, the task is also sent to it — on the device, no key, no
+  network, nothing typed ever leaving the browser — and its answer replaces the keyword guess,
+  labelled `ai` rather than `suggested`. It is asked once typing settles, given the tags you
+  already use so it reuses your vocabulary instead of inventing a parallel one, and its reply is
+  JSON-schema constrained *and* re-validated here: anything that is not a plausible tag path is
+  dropped rather than shown.
 - **The guess never wins over a decision.** An explicit `#tag` beats it, and so does the tag branch
   you are working in. It is shown as a dashed *suggested* chip before you commit, and matching is
   whole-word, so "app" does not fire inside "apparel".
+
+### On-device AI (optional)
+
+| | |
+| --- | --- |
+| **Needs** | Chrome 148+ on desktop, ~22GB free disk, 16GB RAM, 4+ cores |
+| **Costs** | nothing — no API key, no request, no account |
+| **Sends** | nothing; the model runs locally after a one-off download |
+| **If missing** | the keyword table in `categorise.js` does the job, and nothing else changes |
+
+`LanguageModel.availability()` returns `unavailable` on plenty of otherwise capable machines,
+usually because the feature is still behind a flag. To turn it on: `chrome://flags` →
+**Prompt API for Gemini Nano** → *Enabled*, restart, then `chrome://on-device-internals` to watch
+the model download. The app shows an **Enable on-device AI** button when the browser reports the
+model as downloadable, because the first download is several gigabytes and needs a deliberate
+click rather than a page load.
 
 ### Tasks
 
@@ -190,6 +213,7 @@ src/
   hooks/
     useTodos.js            useReducer + persist on change
     useSpeech.js           SpeechRecognition (restarts until its deadline) / speechSynthesis
+    useLocalAI.js          Chrome Prompt API session lifecycle, download and suggestion
     useVoicePermissions.js mic + notification permission, asked once
     useReminders.js        the 30-second due sweep and the ask/listen cycle
     useShortcuts.js        N / · Space, ignored while typing
@@ -202,6 +226,7 @@ src/
     nlp.js                 parsing for tasks, replies, confirmations, edits and tags
     tags.js                nested-tag paths, matching and the sidebar tree
     categorise.js          keyword table behind the suggested tag
+    aiTagger.js            prompts, JSON schema and validation for the on-device model
     rank.js                subsequence ranking for the quick switcher
     todoFilters.js         tabs, sorting, stats, calendar index, urgent + reminder selectors
 ```
@@ -265,6 +290,7 @@ without crashing the UI.
 | `src/state/todoReducer.test.js` | tag normalisation, creation defaults, validation, every action incl. snooze/reschedule/notes, legacy `dueDate` upgrade |
 | `src/state/storage.test.js` | persistence round-trip, corrupted/legacy/invalid payloads, draft round-trip, throwing or missing `localStorage` |
 | `src/state/demoTodos.test.js` | demo data fills every tab, includes an overdue task, unique ids, idempotent re-loading |
+| `src/utils/aiTagger.test.js` | prompt construction, vocabulary cap, and validating what a small model actually returns (prose, junk, empty, over-deep paths) |
 | `src/utils/categorise.test.js` | whole-word matching, specificity, returning nothing rather than guessing |
 | `src/utils/tags.test.js` | path splitting, branch matching (a parent includes its children), tree shape and per-node counts |
 | `src/utils/rank.test.js` | subsequence matching, word-start ranking, tie-breaking, tag search, empty query |
